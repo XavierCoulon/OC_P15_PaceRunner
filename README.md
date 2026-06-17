@@ -27,7 +27,7 @@ client MCP COROS maison (httpx) · `uv` · Docker · GitHub Actions · Hugging F
 
 ## Suivi de projet
 
-Voir le [board GitHub Projects](#) (à lier) et les livrables dans [`docs/`](docs/).
+Voir le [board GitHub Projects](https://github.com/users/XavierCoulon/projects/6) et les livrables dans [`docs/`](docs/).
 
 ## Statut
 
