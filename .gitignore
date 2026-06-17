@@ -1,0 +1,28 @@
+# Secrets / tokens — NE JAMAIS COMMITER
+.env
+.env.*
+!.env.example
+spike/.coros_tokens.json
+spike/.coros_client.json
+spike/.auth_url.txt
+spike/.result.txt
+spike/*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Outils
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
