@@ -1,12 +1,10 @@
+# Spike d'exploration — gardé en local, hors dépôt (réf. ADR C2 + mémoire projet)
+/spike/
+
 # Secrets / tokens — NE JAMAIS COMMITER
 .env
 .env.*
 !.env.example
-spike/.coros_tokens.json
-spike/.coros_client.json
-spike/.auth_url.txt
-spike/.result.txt
-spike/*.log
 
 # Python
 __pycache__/
