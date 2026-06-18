@@ -20,6 +20,14 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
+class TrackPoint(_Frozen):
+    """Point de tracé géolocalisé (source des enrichissements altitude/météo/surface)."""
+
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    elevation_m: float
+
+
 class ElevationSegment(_Frozen):
     """Tronçon d'un kilomètre du parcours."""
 
@@ -39,6 +47,10 @@ class CourseProfile(_Frozen):
     start_lat: float = Field(ge=-90, le=90)
     start_lon: float = Field(ge=-180, le=180)
     segments: list[ElevationSegment] = Field(default_factory=list)
+    points: list[TrackPoint] = Field(
+        default_factory=list,
+        description="Points de tracé (lat/lon/altitude), source des enrichissements.",
+    )
 
 
 class RaceContext(_Frozen):

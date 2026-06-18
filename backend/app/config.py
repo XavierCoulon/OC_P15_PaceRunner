@@ -34,6 +34,8 @@ class Settings(BaseSettings):
 
     # Sources & LLM — valeurs par défaut surchargeables
     coros_mcp_url: str = "https://mcpeu.coros.com/mcp"
+    open_topo_data_url: str = "https://api.opentopodata.org/v1"
+    open_topo_data_dataset: str = "aster30m"
     llm_model: str = "meta-llama/Llama-3.1-8B-Instruct"
     http_timeout_seconds: float = 10.0
 
