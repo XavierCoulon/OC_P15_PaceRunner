@@ -33,6 +33,7 @@ de l'application**, qui dispose d'un **compte COROS**. L'authentification COROS 
 | US3 | En tant que coureur, je veux que la stratégie **tienne compte de ma forme COROS** (allure seuil, fatigue/récup), afin qu'elle soit adaptée à mon niveau actuel. | Les données COROS du propriétaire sont intégrées au calcul ; si COROS est indisponible, l'app le signale et continue. |
 | US4 | En tant que coureur, je veux que la stratégie **tienne compte des conditions prévues le jour J** (météo, vent, qualité de l'air), afin d'ajuster mon allure aux conditions réelles. | Conditions prévues récupérées pour la date/heure et le lieu de départ ; dégradation gracieuse si la source est indisponible. |
 | US5 | En tant que coureur, je veux **consulter l'historique** de mes stratégies générées, afin de comparer mes courses dans le temps. | Les stratégies passées sont listées et consultables (cf. tickets N4 / K6). |
+| US6 | En tant que coureur, je veux **savoir si la stratégie vient du modèle IA ou du repli déterministe** (baseline), afin d'avoir confiance dans la recommandation et d'en juger la fiabilité. | L'origine (`generated_by` : `llm` / `baseline`) est exposée par l'API et **affichée clairement dans le front** (ex. badge « IA » vs « repli ») ; en cas de fallback, l'utilisateur est informé que le modèle n'a pas pu produire de stratégie valide. |
 
 ### Note de périmètre
 
