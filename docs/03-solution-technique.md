@@ -109,3 +109,37 @@ OpenAI-compatible**, `response_format` JSON). **Ollama local** reste un fallback
 - Dépendance à la disponibilité/tarif du provider routé (à surveiller, C5).
 
 > Garde-fous et fallback : voir ADR-1 et `01-cadrage-besoins.md` (NFR fiabilité). Suivi coût/dispo : C5.
+
+## ADR-4 — LLM local (Ollama) d'abord, Hugging Face ensuite
+
+- **Statut** : Accepté
+- **Compétence** : C3
+
+### Contexte
+
+Développer et tester tout le pipeline contre HF Inference suppose les prérequis HF1–HF5 (compte,
+modèle gated, token, provider) — délai d'approbation possible et dépendance réseau pour chaque test.
+Or **Ollama** et **HF Inference** exposent tous deux une API **OpenAI-compatible** (`/v1/chat/completions`).
+
+### Décision
+
+On développe et teste d'abord la génération avec un **modèle local via Ollama** (`llama3.1:8b`, soit
+**le même modèle** que la cible prod `meta-llama/Llama-3.1-8B-Instruct`). On écrit **un seul adapter LLM
+OpenAI-compatible** (`StrategyGenerator`) dont on bascule la cible **par configuration**
+(`base_url` + `model` + clé) : local en dev/CI offline, **HF en prod**. Les prérequis HF (HF1–HF5)
+passent **après** la validation locale.
+
+### Conséquences
+
+**Positives**
+- **Itération rapide et hors-ligne** : pas de réseau, pas de quota, coût nul en dev/tests.
+- **Même modèle local et prod** → prompt et comportement JSON validés en local transposables tels quels.
+- **Bascule local↔HF par simple config**, sans re-travail du code.
+- Tests déterministes (LLM stubé) inchangés ; un test d'intégration local optionnel possible.
+
+**Négatives / limites**
+- Ollama à installer/lancer en local (déjà fait : M3 Pro 18 Go, `llama3.1:8b` ≈ 4,9 Go).
+- Légères différences possibles de tokenizer/quantification local vs provider HF → revalider en prod.
+
+> Reste cohérent avec ADR-3 (même modèle 8B, garde-fous + fallback baseline). HF devient une **cible de
+> déploiement** plutôt qu'une dépendance de développement.
