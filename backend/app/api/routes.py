@@ -2,9 +2,8 @@
 
 - `GET /health` : sonde publique.
 - `GET /athlete` : protégé (Bearer). Vérifie la connexion COROS → renvoie l'`AthleteProfile`.
-- `POST /strategy` : protégé (Bearer). 1re tranche verticale — upload GPX + date/heure
-  de course → renvoie le `CourseProfile`. La génération de stratégie (enrichissements +
-  LLM) sera branchée dans les phases suivantes.
+- `POST /strategy` : protégé (Bearer). Pipeline complet — upload GPX + date/heure → `PaceStrategy`
+  (profil + altitudes + COROS + météo → LLM avec garde-fous et fallback baseline).
 """
 
 from datetime import datetime
@@ -13,10 +12,19 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.adapters.coros_athlete import CorosAthleteProvider
-from app.adapters.gpx_parser import GpxParseError, parse_gpx
+from app.adapters.gpx_parser import GpxParseError
+from app.adapters.llm_openai import OpenAICompatibleStrategyGenerator
+from app.adapters.open_meteo import OpenMeteoWeatherProvider
+from app.adapters.open_topo_data import OpenTopoDataProvider
 from app.api.security import require_api_token
-from app.domain.models import AthleteProfile, CourseProfile, RaceContext
-from app.domain.ports import AthleteProvider
+from app.domain.models import AthleteProfile, PaceStrategy, RaceContext
+from app.domain.ports import (
+    AthleteProvider,
+    ElevationProvider,
+    StrategyGenerator,
+    WeatherProvider,
+)
+from app.services.strategy_service import build_strategy
 
 router = APIRouter()
 
@@ -24,6 +32,18 @@ router = APIRouter()
 def get_athlete_provider() -> AthleteProvider:
     """Fournit le provider COROS (surchargé dans les tests)."""
     return CorosAthleteProvider()
+
+
+def get_elevation_provider() -> ElevationProvider:
+    return OpenTopoDataProvider()
+
+
+def get_weather_provider() -> WeatherProvider:
+    return OpenMeteoWeatherProvider()
+
+
+def get_strategy_generator() -> StrategyGenerator:
+    return OpenAICompatibleStrategyGenerator()
 
 
 @router.get("/health")
@@ -49,19 +69,19 @@ async def get_athlete(
 
 @router.post(
     "/strategy",
-    response_model=CourseProfile,
+    response_model=PaceStrategy,
     dependencies=[Depends(require_api_token)],
 )
 async def create_strategy(
     gpx: Annotated[UploadFile, File(description="Fichier GPX du parcours.")],
     race_datetime: Annotated[datetime, Form(description="Date/heure de la course (ISO 8601).")],
+    elevation: Annotated[ElevationProvider, Depends(get_elevation_provider)],
+    athlete_provider: Annotated[AthleteProvider, Depends(get_athlete_provider)],
+    weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
+    generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
     goal: Annotated[str | None, Form(description="Objectif (optionnel).")] = None,
-) -> CourseProfile:
-    """Parse le GPX et renvoie le profil de parcours.
-
-    La date/heure et l'objectif sont validés (`RaceContext`) ; ils alimenteront la
-    météo jour J et la génération de stratégie dans les phases ultérieures.
-    """
+) -> PaceStrategy:
+    """Exécute le pipeline complet : GPX + date/heure → stratégie d'allure km par km."""
     raw = await gpx.read()
     try:
         content = raw.decode("utf-8")
@@ -71,14 +91,18 @@ async def create_strategy(
             detail="Fichier GPX non décodable (UTF-8 attendu).",
         ) from exc
 
+    race = RaceContext(race_datetime=race_datetime, goal=goal)
     try:
-        profile = parse_gpx(content)
+        return await build_strategy(
+            content,
+            race,
+            elevation=elevation,
+            athlete_provider=athlete_provider,
+            weather=weather,
+            generator=generator,
+        )
     except GpxParseError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
-
-    # Validé dès maintenant ; consommé par les enrichissements (F3) et le LLM (G1).
-    RaceContext(race_datetime=race_datetime, goal=goal)
-    return profile
