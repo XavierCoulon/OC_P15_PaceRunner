@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     coros_token_file: str = ".coros_token_store.json"
     open_topo_data_url: str = "https://api.opentopodata.org/v1"
     open_topo_data_dataset: str = "aster30m"
+    open_meteo_forecast_url: str = "https://api.open-meteo.com/v1/forecast"
+    open_meteo_air_quality_url: str = "https://air-quality-api.open-meteo.com/v1/air-quality"
     llm_model: str = "meta-llama/Llama-3.1-8B-Instruct"
     http_timeout_seconds: float = 10.0
 

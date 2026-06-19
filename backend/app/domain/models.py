@@ -10,8 +10,11 @@ Conventions :
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+WeatherSource = Literal["forecast", "seasonal", "climatology"]
 
 
 class _Frozen(BaseModel):
@@ -75,12 +78,23 @@ class AthleteProfile(_Frozen):
 
 
 class WeatherContext(_Frozen):
-    """Conditions prévues au point de départ pour la date/heure de course (optionnel)."""
+    """Conditions au point de départ pour la date/heure de course (optionnel).
 
+    Selon l'horizon, `source` indique l'origine : prévision (≤16 j), tendance saisonnière
+    (≤7 mois) ou climatologie (au-delà). `horizon_days` = nombre de jours jusqu'à la course.
+    """
+
+    source: WeatherSource | None = None
+    horizon_days: int | None = None
     temperature_c: float | None = None
+    temperature_min_c: float | None = None
+    temperature_max_c: float | None = None
     wind_speed_kmh: float | None = Field(default=None, ge=0)
     precipitation_mm: float | None = Field(default=None, ge=0)
     air_quality_index: float | None = Field(default=None, ge=0)
+    last_year_temperature_c: float | None = Field(
+        default=None, description="Température à la même date l'an dernier (repère)."
+    )
 
 
 class SurfaceContext(_Frozen):
