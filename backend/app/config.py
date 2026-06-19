@@ -43,8 +43,13 @@ class Settings(BaseSettings):
     open_meteo_air_quality_url: str = "https://air-quality-api.open-meteo.com/v1/air-quality"
     open_meteo_archive_url: str = "https://archive-api.open-meteo.com/v1/archive"
     climatology_years: int = 5
-    llm_model: str = "meta-llama/Llama-3.1-8B-Instruct"
     http_timeout_seconds: float = 10.0
+
+    # LLM — API OpenAI-compatible (Ollama local par défaut ; HF par config, cf. ADR-4)
+    llm_base_url: str = "http://localhost:11434/v1"
+    llm_model: str = "llama3.1:8b"
+    llm_api_key: SecretStr | None = None
+    llm_timeout_seconds: float = 120.0
 
 
 @lru_cache
