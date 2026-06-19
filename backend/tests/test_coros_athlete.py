@@ -1,56 +1,68 @@
-"""Tests des providers COROS (parsing, mapping, dégradation, mock)."""
+"""Tests des providers COROS (mapping multi-outils, dégradation, mock)."""
 
 from typing import Any
 
-from app.adapters.coros_athlete import CorosAthleteProvider, parse_fitness_overview
+from app.adapters.coros_athlete import CorosAthleteProvider
 from app.adapters.coros_mock import CorosMockAthleteProvider
 
-_SAMPLE = (
-    "Fitness Assessment Overview\n========================\n\n"
-    "VO2max: 45\nRunning Level: 77\nThreshold Pace: 4:52 /km\n"
-    "5 km Prediction: 23:25\nMarathon Prediction: 3:52:51"
+_FITNESS = "VO2max: 45\nRunning Level: 77\nThreshold Pace: 4:52 /km"
+_RECOVERY = (
+    "Recovery Status\nRecovery: 87%\nLevel: Moderate training recommended\nFull Recovery: 14h"
 )
+_USER = "Height: 179.0 cm\nWeight: 71.2 kg\nBirthday: 1977-05-13 (Age: 49)\nGender: Male"
+
+_RESPONSES = {
+    "queryFitnessAssessmentOverview": _FITNESS,
+    "queryRecoveryStatus": _RECOVERY,
+    "queryUserInfo": _USER,
+}
 
 
 class _FakeClient:
-    def __init__(self, text: str | None = None, exc: Exception | None = None) -> None:
-        self._text = text
-        self._exc = exc
+    """Renvoie un texte par outil ; lève une erreur pour les outils absents de `responses`."""
+
+    def __init__(self, responses: dict[str, str] | None = None, fail_all: bool = False) -> None:
+        self._responses = responses or {}
+        self._fail_all = fail_all
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
-        if self._exc is not None:
-            raise self._exc
-        assert self._text is not None
-        return self._text
+        if self._fail_all or name not in self._responses:
+            raise RuntimeError(f"COROS KO: {name}")
+        return self._responses[name]
 
 
-def test_parse_fitness_overview() -> None:
-    profile = parse_fitness_overview(_SAMPLE)
-    assert profile.threshold_pace_sec_per_km == 292.0  # 4:52
-    assert profile.vo2max == 45.0
-
-
-def test_parse_missing_fields_returns_none() -> None:
-    profile = parse_fitness_overview("aucune donnée exploitable")
-    assert profile.threshold_pace_sec_per_km is None
-    assert profile.vo2max is None
-
-
-async def test_provider_maps_tool_text() -> None:
-    provider = CorosAthleteProvider(client=_FakeClient(text=_SAMPLE))
+async def test_provider_maps_all_tools() -> None:
+    provider = CorosAthleteProvider(client=_FakeClient(_RESPONSES))
     profile = await provider.get_athlete_profile()
     assert profile.threshold_pace_sec_per_km == 292.0
     assert profile.vo2max == 45.0
+    assert profile.recovery_pct == 87.0
+    assert profile.recovery_status == "Moderate training recommended"
+    assert profile.weight_kg == 71.2
 
 
-async def test_provider_returns_empty_profile_on_error() -> None:
-    provider = CorosAthleteProvider(client=_FakeClient(exc=RuntimeError("COROS KO")))
+async def test_provider_partial_degradation() -> None:
+    # Seul l'outil fitness répond ; recovery et userInfo échouent.
+    provider = CorosAthleteProvider(
+        client=_FakeClient({"queryFitnessAssessmentOverview": _FITNESS})
+    )
+    profile = await provider.get_athlete_profile()
+    assert profile.threshold_pace_sec_per_km == 292.0
+    assert profile.recovery_pct is None
+    assert profile.weight_kg is None
+
+
+async def test_provider_full_degradation() -> None:
+    provider = CorosAthleteProvider(client=_FakeClient(fail_all=True))
     profile = await provider.get_athlete_profile()
     assert profile.threshold_pace_sec_per_km is None
     assert profile.vo2max is None
+    assert profile.recovery_pct is None
+    assert profile.weight_kg is None
 
 
 async def test_mock_provider_returns_seeded_profile() -> None:
     profile = await CorosMockAthleteProvider().get_athlete_profile()
     assert profile.threshold_pace_sec_per_km == 292.0
-    assert profile.vo2max == 45.0
+    assert profile.recovery_pct == 87.0
+    assert profile.weight_kg == 71.2

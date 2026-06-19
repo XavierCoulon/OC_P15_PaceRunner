@@ -1,8 +1,11 @@
 """AthleteProvider : forme de l'athlète via COROS.
 
-Appelle l'outil `queryFitnessAssessmentOverview` (qui renvoie un texte formaté) et en
-extrait l'allure seuil et le VO2max. En cas d'erreur (identifiants absents, API KO),
-renvoie un `AthleteProfile` vide → dégradation gracieuse du pipeline.
+Agrège trois outils COROS (chacun renvoyant un texte formaté), avec dégradation
+gracieuse **par appel** — un outil indisponible n'empêche pas les autres :
+
+- `queryFitnessAssessmentOverview` → allure seuil, VO2max ;
+- `queryRecoveryStatus` → % et niveau de récupération (fraîcheur jour J) ;
+- `queryUserInfo` → poids (utile au *grade-adjusted pace*).
 """
 
 import re
@@ -11,14 +14,8 @@ from app.adapters.coros_client import CorosClient, MCPToolClient
 from app.domain.models import AthleteProfile
 
 _FITNESS_TOOL = "queryFitnessAssessmentOverview"
-
-
-def parse_fitness_overview(text: str) -> AthleteProfile:
-    """Extrait les indicateurs utiles du texte renvoyé par COROS."""
-    return AthleteProfile(
-        threshold_pace_sec_per_km=_parse_pace(text),
-        vo2max=_parse_float(r"VO2max:\s*([0-9]+(?:\.[0-9]+)?)", text),
-    )
+_RECOVERY_TOOL = "queryRecoveryStatus"
+_USER_TOOL = "queryUserInfo"
 
 
 def _parse_float(pattern: str, text: str) -> float | None:
@@ -32,6 +29,12 @@ def _parse_pace(text: str) -> float | None:
     return float(int(match.group(1)) * 60 + int(match.group(2))) if match else None
 
 
+def _parse_recovery_level(text: str) -> str | None:
+    """« Level: Moderate training recommended » → ce libellé."""
+    match = re.search(r"Level:\s*(.+)", text)
+    return match.group(1).strip() if match else None
+
+
 class CorosAthleteProvider:
     """Implémente le port `AthleteProvider`."""
 
@@ -39,9 +42,20 @@ class CorosAthleteProvider:
         self._client: MCPToolClient = client or CorosClient()
 
     async def get_athlete_profile(self) -> AthleteProfile:
+        fitness = await self._safe_call(_FITNESS_TOOL)
+        recovery = await self._safe_call(_RECOVERY_TOOL)
+        user = await self._safe_call(_USER_TOOL)
+        return AthleteProfile(
+            threshold_pace_sec_per_km=_parse_pace(fitness),
+            vo2max=_parse_float(r"VO2max:\s*([0-9]+(?:\.[0-9]+)?)", fitness),
+            recovery_pct=_parse_float(r"Recovery:\s*([0-9]+(?:\.[0-9]+)?)\s*%", recovery),
+            recovery_status=_parse_recovery_level(recovery),
+            weight_kg=_parse_float(r"Weight:\s*([0-9]+(?:\.[0-9]+)?)\s*kg", user),
+        )
+
+    async def _safe_call(self, tool: str) -> str:
+        """Appelle un outil COROS ; renvoie une chaîne vide en cas d'échec (dégradation)."""
         try:
-            text = await self._client.call_tool(_FITNESS_TOOL, {})
+            return await self._client.call_tool(tool, {})
         except Exception:
-            # Toute panne COROS (identifiants, réseau, outil) → dégradation gracieuse.
-            return AthleteProfile()
-        return parse_fitness_overview(text)
+            return ""

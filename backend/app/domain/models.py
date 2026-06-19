@@ -69,7 +69,9 @@ class AthleteProfile(_Frozen):
     threshold_pace_sec_per_km: float | None = Field(default=None, gt=0)
     vo2max: float | None = Field(default=None, gt=0)
     resting_hr: int | None = Field(default=None, gt=0)
-    recovery_status: str | None = None
+    recovery_pct: float | None = Field(default=None, ge=0, le=100)
+    recovery_status: str | None = Field(default=None, description="Niveau de récupération (texte).")
+    weight_kg: float | None = Field(default=None, gt=0, description="Poids (grade-adjusted pace).")
 
 
 class WeatherContext(_Frozen):

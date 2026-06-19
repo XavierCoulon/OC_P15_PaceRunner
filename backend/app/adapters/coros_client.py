@@ -161,7 +161,7 @@ class CorosClient:
         if result.get("isError"):
             raise CorosError(f"L'outil COROS « {name} » a renvoyé une erreur.")
         texts = [
-            block.get("text", "")
+            self._decode_text(block.get("text", ""))
             for block in result.get("content", [])
             if block.get("type") == "text"
         ]
@@ -169,6 +169,15 @@ class CorosClient:
         if not text:
             raise CorosError(f"Réponse COROS vide pour « {name} ».")
         return text
+
+    @staticmethod
+    def _decode_text(raw: str) -> str:
+        """COROS encode parfois le texte en chaîne JSON (guillemets + \\n littéraux) : on décode."""
+        try:
+            decoded = json.loads(raw)
+        except (ValueError, TypeError):
+            return raw
+        return decoded if isinstance(decoded, str) else raw
 
     @staticmethod
     def _parse_body(response: httpx.Response) -> dict[str, Any] | None:

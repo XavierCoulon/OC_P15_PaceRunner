@@ -2,8 +2,14 @@
 
 from app.domain.models import AthleteProfile
 
-# Snapshot observé via le spike : allure seuil 4:52/km (292 s), VO2max 45.
-_DEFAULT = AthleteProfile(threshold_pace_sec_per_km=292.0, vo2max=45.0)
+# Snapshot réel observé : seuil 4:52/km (292 s), VO2max 45, récup 87 %, poids 71,2 kg.
+_DEFAULT = AthleteProfile(
+    threshold_pace_sec_per_km=292.0,
+    vo2max=45.0,
+    recovery_pct=87.0,
+    recovery_status="Moderate training recommended",
+    weight_kg=71.2,
+)
 
 
 class CorosMockAthleteProvider:

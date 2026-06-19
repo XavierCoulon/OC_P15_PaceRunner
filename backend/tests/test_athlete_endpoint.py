@@ -34,3 +34,5 @@ def test_athlete_returns_profile(client: TestClient) -> None:
     body = response.json()
     assert body["threshold_pace_sec_per_km"] == 292.0
     assert body["vo2max"] == 45.0
+    assert body["recovery_pct"] == 87.0
+    assert body["weight_kg"] == 71.2

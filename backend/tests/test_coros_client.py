@@ -112,6 +112,33 @@ async def test_401_triggers_refresh_and_retry() -> None:
     assert store.tokens is not None and store.tokens.access_token == "fresh"
 
 
+@respx.mock
+async def test_decodes_json_encoded_text() -> None:
+    # COROS renvoie parfois le texte encodé en chaîne JSON ("...\n...").
+    encoded = json.dumps("Recovery: 87%\nLevel: Moderate training recommended")
+    payload = {"result": {"content": [{"type": "text", "text": encoded}]}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        method = json.loads(request.content).get("method")
+        if method == "initialize":
+            return httpx.Response(200, headers={"mcp-session-id": "s"}, json={"result": {}})
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            text=f"data: {json.dumps(payload)}\n\n",
+        )
+
+    respx.post(_TOKEN).mock(return_value=httpx.Response(200, json={"access_token": "abc"}))
+    respx.post(_MCP).mock(side_effect=handler)
+
+    text = await CorosClient(_settings(), token_store=_MemStore()).call_tool("x", {})
+
+    assert text == "Recovery: 87%\nLevel: Moderate training recommended"
+    assert '"' not in text
+
+
 async def test_call_tool_without_credentials_raises() -> None:
     with pytest.raises(CorosError):
         await CorosClient(Settings(), token_store=_MemStore()).call_tool("x", {})

@@ -10,7 +10,7 @@
 | Source | Données fournies | Accès / protocole | Auth | Rôle dans le pipeline | Priorité |
 |---|---|---|---|---|---|
 | **GPX** (fichier coureur) | Tracé (lat/lon), altitude barométrique, distance | Upload fichier (multipart) | — | **Entrée principale** : profil de parcours, point de départ pour la géolocalisation des autres sources | 1 (indispensable) |
-| **COROS** | Forme athlète : VO2max, **allure seuil**, récupération/fatigue, prédictions | Serveur **MCP distant** via **client httpx maison** | OAuth 2.1 (mono-utilisateur, refresh token en secret) | Personnalisation de la stratégie selon la forme du propriétaire | 1 |
+| **COROS** | Forme athlète : VO2max & **allure seuil** (fitness overview), **récupération** (recovery status), **poids** (user info) | Serveur **MCP distant** via **client httpx maison** | OAuth 2.1 (mono-utilisateur, refresh token en secret) | Personnalisation de la stratégie selon la forme du propriétaire | 1 |
 | **Open Topo Data** | **Altitudes corrigées** par coordonnées | API HTTP publique (REST) | — (gratuit) | Nettoyage du bruit barométrique du GPX → dénivelé fiable | 1 (nettoyage) |
 | **Open-Meteo** | **Météo + qualité de l'air** prévues (température, vent, précip., AQI) | API HTTP publique (REST) | — (gratuit) | Conditions jour J au point de départ pour la date/heure de course | 2 |
 | **Overpass / OSM** | **Type de surface** du parcours (route, sentier, piste…) | API HTTP publique (Overpass QL) | — (gratuit) | Affiner l'effort selon le revêtement | 3 |
@@ -21,7 +21,13 @@
   Data, Open-Meteo et Overpass — le GPX est donc la source pivot.
 - **COROS** : seule source nécessitant une authentification ; app **mono-utilisateur** (un seul compte,
   OAuth réalisé une fois — cf. spike #13 et ADR C-ADR2). Accès via **client MCP httpx maison** (le SDK
-  officiel bloque sur COROS).
+  officiel bloque sur COROS). Le serveur **fait tourner le refresh token à chaque refresh** → stockage
+  durable du token (l'access_token dure ~30 j).
+- **Outils COROS retenus** (sondés en live parmi 15 disponibles) : `queryFitnessAssessmentOverview`
+  (capacité), `queryRecoveryStatus` (fraîcheur jour J), `queryUserInfo` (poids → *grade-adjusted pace*) ;
+  `querySportRecords` en option (calibrage sur allures récentes). Écartés : signaux redondants de
+  fraîcheur (HRV, sommeil, stress, FC), `queryTrainingLoadAssessment` (indisponible/`isError`),
+  `queryDevices`/`queryTrainingSchedule` (hors besoin). Principe : n'injecter que de la donnée utile.
 - **Sources publiques gratuites** (Open Topo Data, Open-Meteo, Overpass) : pas de clé requise, sous
   réserve des limites d'usage (détaillées en **B2**).
 - **Priorités** : 1 = indispensable, 2/3 = enrichissement avec **dégradation gracieuse** (le pipeline
