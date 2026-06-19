@@ -25,6 +25,9 @@ format: ## Formate le code (ruff)
 typecheck: ## Vérifie les types (mypy strict)
 	uv run mypy
 
+eval: ## Évalue le LLM vs baseline sur les cas types (nécessite Ollama)
+	PYTHONPATH=backend uv run python -m app.evaluation
+
 check: lint typecheck test ## Vérifie tout (lint + types + tests), comme la CI
 
 clean: ## Supprime les caches Python/outils

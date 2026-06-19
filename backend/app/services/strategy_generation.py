@@ -36,10 +36,10 @@ async def generate_strategy(
     if check_strategy(strategy, course, athlete):
         return build_baseline_strategy(course, athlete)
 
-    return _with_consistent_totals(strategy, course)
+    return recompute_totals(strategy, course)
 
 
-def _with_consistent_totals(strategy: PaceStrategy, course: CourseProfile) -> PaceStrategy:
+def recompute_totals(strategy: PaceStrategy, course: CourseProfile) -> PaceStrategy:
     """Recalcule temps estimé et allure moyenne depuis les allures km (ne fait pas confiance
     à l'arithmétique du LLM)."""
     distances = [segment.distance_km for segment in course.segments]
