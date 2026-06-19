@@ -12,7 +12,7 @@
 | **GPX** (fichier coureur) | Tracé (lat/lon), altitude barométrique, distance | Upload fichier (multipart) | — | **Entrée principale** : profil de parcours, point de départ pour la géolocalisation des autres sources | 1 (indispensable) |
 | **COROS** | Forme athlète : VO2max & **allure seuil** (fitness overview), **récupération** (recovery status), **poids** (user info) | Serveur **MCP distant** via **client httpx maison** | OAuth 2.1 (mono-utilisateur, refresh token en secret) | Personnalisation de la stratégie selon la forme du propriétaire | 1 |
 | **Open Topo Data** | **Altitudes corrigées** par coordonnées | API HTTP publique (REST) | — (gratuit) | Nettoyage du bruit barométrique du GPX → dénivelé fiable | 1 (nettoyage) |
-| **Open-Meteo** | **Météo + qualité de l'air** prévues (température, vent, précip., AQI) | API HTTP publique (REST) | — (gratuit) | Conditions jour J au point de départ pour la date/heure de course | 2 |
+| **Open-Meteo** | **Météo selon l'horizon** : prévision (≤16 j), tendance saisonnière SEAS5 (≤7 mois), climatologie ERA5 (historique 1940→) ; + qualité de l'air (≤~5 j) | 3 API REST publiques (forecast / seasonal / archive) | — (gratuit, sans clé) | Conditions au point de départ pour la date/heure de course | 2 |
 | **Overpass / OSM** | **Type de surface** du parcours (route, sentier, piste…) | API HTTP publique (Overpass QL) | — (gratuit) | Affiner l'effort selon le revêtement | 3 |
 
 ### Notes
@@ -28,6 +28,11 @@
   `querySportRecords` en option (calibrage sur allures récentes). Écartés : signaux redondants de
   fraîcheur (HRV, sommeil, stress, FC), `queryTrainingLoadAssessment` (indisponible/`isError`),
   `queryDevices`/`queryTrainingSchedule` (hors besoin). Principe : n'injecter que de la donnée utile.
+- **Météo Open-Meteo — routage par horizon** (la course peut être dans plusieurs mois) : ≤ 16 j →
+  **prévision** réelle ; 16 j–7 mois → **tendance saisonnière** (SEAS5) ; au-delà → **climatologie ERA5**
+  (moyenne de la même date calendaire sur N années + min/max). Comparatif **« même date l'an dernier »**
+  fourni en repère. Le besoin n'est donc pas une « prévision » exacte lointaine mais une **attente
+  typique + incertitude**.
 - **Sources publiques gratuites** (Open Topo Data, Open-Meteo, Overpass) : pas de clé requise, sous
   réserve des limites d'usage (détaillées en **B2**).
 - **Priorités** : 1 = indispensable, 2/3 = enrichissement avec **dégradation gracieuse** (le pipeline
@@ -42,7 +47,7 @@
 | **GPX** | Tracé fiable (GPS), mais **altitude barométrique bruitée** ; fichiers hétérogènes selon la montre/app. | Couvre BF1/BF2 (parcours, profil). | Fichier corrompu/incomplet → parsing à sécuriser (erreur 422) ; altitude à corriger via Open Topo Data. |
 | **COROS** | Données issues d'un appareil de mesure réel (VO2max, allure seuil) ; mises à jour régulières. | Cœur de la personnalisation (BF3). | **Source unique d'auth** ; dépend du serveur MCP COROS (dispo, expiration du refresh token) ; mono-utilisateur. |
 | **Open Topo Data** | Altitudes issues de modèles MNT (ex. SRTM) — bonne précision relative pour le dénivelé. | Corrige le défaut clé du GPX (D+ fiable). | **Limite de débit** (API publique gratuite) ; résolution finie du MNT ; service tiers → dégradation possible. |
-| **Open-Meteo** | Prévisions de qualité ; fraîcheur dépend de l'horizon. | Conditions jour J (BF4). | Au-delà de ~16 j → bascule sur **moyennes saisonnières** ; incertitude météo intrinsèque. |
+| **Open-Meteo** | Prévision fiable ≤16 j ; au-delà, qualité décroissante. | Conditions jour J (BF4), quel que soit l'horizon. | Routage par horizon : ≤16 j prévision · ≤7 mois **seasonal SEAS5** (régional, **non bias-corrigé** → tendance, pas valeur exacte) · sinon **climatologie ERA5** (moyenne N années + variabilité). Qualité air ≤~5 j seulement. |
 | **Overpass / OSM** | Données contributives : couverture/qualité **variables** selon la zone. | Affine l'effort (revêtement) — apport secondaire. | Tags surface parfois absents/incohérents ; **quotas** Overpass ; service tiers. |
 
 ### Synthèse d'adéquation
