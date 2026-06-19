@@ -11,13 +11,17 @@ L'app étant mono-utilisateur, le refresh token vient d'un secret (`COROS_REFRES
 """
 
 import json
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
 
+from app.adapters.coros_token_store import CorosTokens, FileTokenStore, TokenStore
 from app.config import Settings, get_settings
 
 _PROTOCOL_VERSION = "2025-06-18"
+_DEFAULT_EXPIRES_IN = 1800
 
 
 class CorosError(RuntimeError):
@@ -33,39 +37,72 @@ class MCPToolClient(Protocol):
 class CorosClient:
     """Implémente `MCPToolClient` via le transport Streamable HTTP de COROS."""
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(
+        self, settings: Settings | None = None, token_store: TokenStore | None = None
+    ) -> None:
         config = settings or get_settings()
         self._mcp_url = config.coros_mcp_url
         self._token_url = config.coros_token_url
         self._client_id = config.coros_client_id
-        self._refresh_token = (
+        self._seed_refresh_token = (
             config.coros_refresh_token.get_secret_value() if config.coros_refresh_token else None
         )
         self._timeout = config.http_timeout_seconds
+        self._store: TokenStore = token_store or FileTokenStore(Path(config.coros_token_file))
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
-        """Rafraîchit le token, ouvre une session MCP et appelle un outil ; renvoie son texte."""
-        if not self._refresh_token or not self._client_id:
-            raise CorosError("Identifiants COROS absents (client_id / refresh_token).")
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            access_token = await self._fetch_access_token(client)
-            session_id = await self._initialize(client, access_token)
-            return await self._invoke(client, access_token, session_id, name, arguments)
+        """Ouvre une session MCP et appelle un outil ; renvoie son texte.
 
-    async def _fetch_access_token(self, client: httpx.AsyncClient) -> str:
+        Réutilise l'access_token tant qu'il est valide ; sinon refresh + persistance du
+        refresh token tourné. Un seul retry en cas de rejet d'authentification (401).
+        """
+        if not self._client_id:
+            raise CorosError("client_id COROS absent.")
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            for attempt in range(2):
+                access_token = await self._access_token(client, force_refresh=attempt == 1)
+                try:
+                    session_id = await self._initialize(client, access_token)
+                    return await self._invoke(client, access_token, session_id, name, arguments)
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == 401 and attempt == 0:
+                        continue
+                    raise CorosError(f"Échec de l'appel COROS « {name} ».") from exc
+        raise CorosError("Échec de l'authentification COROS.")
+
+    async def _access_token(self, client: httpx.AsyncClient, *, force_refresh: bool) -> str:
+        tokens = self._store.load()
+        if tokens is not None and not force_refresh and not tokens.is_expired():
+            return tokens.access_token
+        refresh_token = tokens.refresh_token if tokens is not None else self._seed_refresh_token
+        if not refresh_token:
+            raise CorosError("Refresh token COROS absent (ni store, ni configuration).")
+        refreshed = await self._refresh(client, refresh_token)
+        self._store.save(refreshed)
+        return refreshed.access_token
+
+    async def _refresh(self, client: httpx.AsyncClient, refresh_token: str) -> CorosTokens:
         response = await client.post(
             self._token_url,
             data={
                 "grant_type": "refresh_token",
-                "refresh_token": self._refresh_token,
+                "refresh_token": refresh_token,
                 "client_id": self._client_id,
             },
         )
         response.raise_for_status()
-        access_token = response.json().get("access_token")
+        data = response.json()
+        access_token = data.get("access_token")
         if not access_token:
             raise CorosError("Aucun access_token renvoyé par COROS.")
-        return str(access_token)
+        expires_in = int(data.get("expires_in", _DEFAULT_EXPIRES_IN))
+        # COROS fait tourner le refresh token : on conserve le nouveau s'il est fourni.
+        new_refresh_token = data.get("refresh_token") or refresh_token
+        return CorosTokens(
+            access_token=str(access_token),
+            refresh_token=str(new_refresh_token),
+            expires_at=datetime.now(UTC) + timedelta(seconds=expires_in),
+        )
 
     def _headers(self, access_token: str, session_id: str | None = None) -> dict[str, str]:
         headers = {

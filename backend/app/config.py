@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     coros_mcp_url: str = "https://mcpeu.coros.com/mcp"
     coros_token_url: str = "https://mcpeu.coros.com/oauth2/token"
     coros_client_id: str | None = None
+    coros_token_file: str = ".coros_token_store.json"
     open_topo_data_url: str = "https://api.opentopodata.org/v1"
     open_topo_data_dataset: str = "aster30m"
     llm_model: str = "meta-llama/Llama-3.1-8B-Instruct"

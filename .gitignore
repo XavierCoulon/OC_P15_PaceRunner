@@ -5,6 +5,7 @@
 .env
 .env.*
 !.env.example
+.coros_token_store.json
 
 # Python
 __pycache__/
