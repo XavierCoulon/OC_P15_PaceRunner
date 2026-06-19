@@ -9,6 +9,7 @@ from app.adapters.open_meteo import OpenMeteoWeatherProvider
 
 _FORECAST = "https://api.open-meteo.com/v1/forecast"
 _AIR = "https://air-quality-api.open-meteo.com/v1/air-quality"
+_ARCHIVE = "https://archive-api.open-meteo.com/v1/archive"
 
 _LAT, _LON = 43.47, -1.48
 
@@ -59,18 +60,48 @@ async def test_forecast_tier_returns_conditions() -> None:
 
 
 @respx.mock
-async def test_out_of_forecast_horizon_returns_horizon_only() -> None:
-    when = _when(200)
-    weather = await OpenMeteoWeatherProvider().get_weather(_LAT, _LON, when)
-    assert weather.source is None
-    assert weather.horizon_days == 200
-    assert weather.temperature_c is None
-
-
-@respx.mock
 async def test_degrades_on_forecast_error() -> None:
     respx.get(url__startswith=_FORECAST).mock(return_value=httpx.Response(500))
     weather = await OpenMeteoWeatherProvider().get_weather(_LAT, _LON, _when(3))
     assert weather.source is None
     assert weather.temperature_c is None
     assert weather.horizon_days == 3
+
+
+@respx.mock
+async def test_climatology_tier_averages_past_years() -> None:
+    # Course dans ~6 mois → tier climatologie ; chaque année passée renvoie le même jour.
+    respx.get(url__startswith=_ARCHIVE).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "daily": {
+                    "temperature_2m_mean": [15.0],
+                    "temperature_2m_max": [20.0],
+                    "temperature_2m_min": [10.0],
+                    "precipitation_sum": [2.0],
+                    "wind_speed_10m_max": [18.0],
+                }
+            },
+        )
+    )
+
+    weather = await OpenMeteoWeatherProvider().get_weather(_LAT, _LON, _when(200))
+
+    assert weather.source == "climatology"
+    assert weather.horizon_days == 200
+    assert weather.temperature_c == 15.0  # moyenne d'années identiques
+    assert weather.temperature_min_c == 10.0
+    assert weather.temperature_max_c == 20.0
+    assert weather.precipitation_mm == 2.0
+    assert weather.wind_speed_kmh == 18.0
+    assert weather.last_year_temperature_c == 15.0
+
+
+@respx.mock
+async def test_climatology_degrades_when_archive_unavailable() -> None:
+    respx.get(url__startswith=_ARCHIVE).mock(return_value=httpx.Response(500))
+    weather = await OpenMeteoWeatherProvider().get_weather(_LAT, _LON, _when(200))
+    assert weather.source is None
+    assert weather.temperature_c is None
+    assert weather.horizon_days == 200

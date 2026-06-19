@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     open_topo_data_dataset: str = "aster30m"
     open_meteo_forecast_url: str = "https://api.open-meteo.com/v1/forecast"
     open_meteo_air_quality_url: str = "https://air-quality-api.open-meteo.com/v1/air-quality"
+    open_meteo_archive_url: str = "https://archive-api.open-meteo.com/v1/archive"
+    climatology_years: int = 5
     llm_model: str = "meta-llama/Llama-3.1-8B-Instruct"
     http_timeout_seconds: float = 10.0
 
