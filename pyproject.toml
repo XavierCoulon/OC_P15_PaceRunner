@@ -13,6 +13,8 @@ dependencies = [
     "gpxpy>=1.6.2",
     "numpy>=2.4.6",
     "python-multipart>=0.0.32",
+    "sqlmodel>=0.0.38",
+    "asyncpg>=0.31.0",
 ]
 
 [tool.uv]

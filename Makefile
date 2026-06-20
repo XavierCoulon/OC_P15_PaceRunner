@@ -28,6 +28,9 @@ typecheck: ## Vérifie les types (mypy strict)
 eval: ## Évalue le LLM vs baseline sur les cas types (nécessite Ollama)
 	PYTHONPATH=backend uv run python -m app.evaluation
 
+db-ping: ## Vérifie la connexion à la base (DATABASE_URL)
+	PYTHONPATH=backend uv run python -m app.db
+
 check: lint typecheck test ## Vérifie tout (lint + types + tests), comme la CI
 
 clean: ## Supprime les caches Python/outils
