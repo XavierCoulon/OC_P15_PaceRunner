@@ -9,7 +9,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
 from app.adapters.coros_athlete import CorosAthleteProvider
 from app.adapters.gpx_parser import GpxParseError
@@ -19,6 +19,8 @@ from app.adapters.open_topo_data import OpenTopoDataProvider
 from app.adapters.prediction_repo import NullPredictionRepository, SqlPredictionRepository
 from app.api.security import require_api_token
 from app.config import get_settings
+from app.db.history import HistoryReader, NullHistoryReader, SqlHistoryReader
+from app.db.read_models import RunDetail, RunStats, RunSummary
 from app.domain.models import AthleteProfile, PaceStrategy, RaceContext
 from app.domain.ports import (
     AthleteProvider,
@@ -54,6 +56,13 @@ def get_prediction_repository() -> PredictionRepository:
     if get_settings().database_url:
         return SqlPredictionRepository()
     return NullPredictionRepository()
+
+
+def get_history_reader() -> HistoryReader:
+    """Lecture du journal en base si configurée, sinon vide."""
+    if get_settings().database_url:
+        return SqlHistoryReader()
+    return NullHistoryReader()
 
 
 @router.get("/health")
@@ -118,3 +127,45 @@ async def create_strategy(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
+
+
+@router.get(
+    "/history",
+    response_model=list[RunSummary],
+    dependencies=[Depends(require_api_token)],
+)
+async def list_history(
+    reader: Annotated[HistoryReader, Depends(get_history_reader)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[RunSummary]:
+    """Liste paginée des stratégies générées (plus récentes d'abord)."""
+    return await reader.list_runs(limit=limit, offset=offset)
+
+
+@router.get(
+    "/history/{run_id}",
+    response_model=RunDetail,
+    dependencies=[Depends(require_api_token)],
+)
+async def get_history(
+    run_id: int,
+    reader: Annotated[HistoryReader, Depends(get_history_reader)],
+) -> RunDetail:
+    """Détail d'un run (snapshots + stratégie complète)."""
+    detail = await reader.get_run(run_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run introuvable.")
+    return detail
+
+
+@router.get(
+    "/stats",
+    response_model=RunStats,
+    dependencies=[Depends(require_api_token)],
+)
+async def get_stats(
+    reader: Annotated[HistoryReader, Depends(get_history_reader)],
+) -> RunStats:
+    """KPIs agrégés du journal (monitoring)."""
+    return await reader.compute_stats()
