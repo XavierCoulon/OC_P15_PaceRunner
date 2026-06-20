@@ -16,6 +16,12 @@ run: ## Lance l'API en local (rechargement auto) — PORT=8000 par défaut
 front: ## Lance le front Streamlit (port 7860)
 	PYTHONPATH=backend uv run streamlit run front/app.py --server.port 7860
 
+dev: ## Lance backend (:8000) + front (:7860) ensemble (Ctrl-C arrête les deux)
+	@trap 'kill 0' EXIT INT TERM; \
+	uv run uvicorn app.main:app --app-dir backend --port $(PORT) & \
+	PYTHONPATH=backend uv run streamlit run front/app.py --server.port 7860 --server.headless true & \
+	wait
+
 test: ## Lance les tests
 	uv run pytest
 
