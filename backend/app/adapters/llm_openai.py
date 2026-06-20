@@ -75,7 +75,7 @@ class OpenAICompatibleStrategyGenerator:
         payload: dict[str, Any] = {
             "model": self._model,
             "messages": messages,
-            "temperature": 0.2,
+            "temperature": 0.1,
             "response_format": {"type": "json_object"},
             "stream": False,
         }
