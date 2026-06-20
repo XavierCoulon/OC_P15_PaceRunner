@@ -16,11 +16,14 @@ from app.adapters.gpx_parser import GpxParseError
 from app.adapters.llm_openai import OpenAICompatibleStrategyGenerator
 from app.adapters.open_meteo import OpenMeteoWeatherProvider
 from app.adapters.open_topo_data import OpenTopoDataProvider
+from app.adapters.prediction_repo import NullPredictionRepository, SqlPredictionRepository
 from app.api.security import require_api_token
+from app.config import get_settings
 from app.domain.models import AthleteProfile, PaceStrategy, RaceContext
 from app.domain.ports import (
     AthleteProvider,
     ElevationProvider,
+    PredictionRepository,
     StrategyGenerator,
     WeatherProvider,
 )
@@ -44,6 +47,13 @@ def get_weather_provider() -> WeatherProvider:
 
 def get_strategy_generator() -> StrategyGenerator:
     return OpenAICompatibleStrategyGenerator()
+
+
+def get_prediction_repository() -> PredictionRepository:
+    """Journalise en base si DATABASE_URL est configuré, sinon no-op."""
+    if get_settings().database_url:
+        return SqlPredictionRepository()
+    return NullPredictionRepository()
 
 
 @router.get("/health")
@@ -79,6 +89,7 @@ async def create_strategy(
     athlete_provider: Annotated[AthleteProvider, Depends(get_athlete_provider)],
     weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
     generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
+    repository: Annotated[PredictionRepository, Depends(get_prediction_repository)],
     goal: Annotated[str | None, Form(description="Objectif (optionnel).")] = None,
 ) -> PaceStrategy:
     """Exécute le pipeline complet : GPX + date/heure → stratégie d'allure km par km."""
@@ -100,6 +111,7 @@ async def create_strategy(
             athlete_provider=athlete_provider,
             weather=weather,
             generator=generator,
+            repository=repository,
         )
     except GpxParseError as exc:
         raise HTTPException(

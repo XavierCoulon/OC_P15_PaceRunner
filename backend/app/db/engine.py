@@ -45,13 +45,13 @@ def get_engine() -> AsyncEngine:
 
 
 @lru_cache
-def _session_factory() -> async_sessionmaker[AsyncSession]:
+def session_factory() -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(get_engine(), expire_on_commit=False)
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
     """Dépendance FastAPI : fournit une session asynchrone."""
-    async with _session_factory()() as session:
+    async with session_factory()() as session:
         yield session
 
 

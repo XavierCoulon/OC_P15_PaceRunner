@@ -58,3 +58,23 @@ class StrategyGenerator(Protocol):
         weather: WeatherContext | None,
         surface: SurfaceContext | None,
     ) -> PaceStrategy: ...
+
+
+@runtime_checkable
+class PredictionRepository(Protocol):
+    """Journalise un run de génération (entrée, contextes, stratégie, métriques)."""
+
+    async def save_run(
+        self,
+        *,
+        gpx_hash: str,
+        course: CourseProfile,
+        race: RaceContext,
+        athlete: AthleteProfile | None,
+        weather: WeatherContext | None,
+        surface: SurfaceContext | None,
+        strategy: PaceStrategy,
+        latency_ms: float,
+        guardrails_passed: bool,
+        deviation_vs_baseline_pct: float,
+    ) -> None: ...

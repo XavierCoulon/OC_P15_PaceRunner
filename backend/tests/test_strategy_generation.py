@@ -80,19 +80,21 @@ class _FakeGenerator:
 
 async def test_valid_llm_strategy_is_kept_and_totals_recomputed() -> None:
     generator = _FakeGenerator(_strategy([(300.0, 0.0), (330.0, 5.0)], estimated=9999.0))
-    result = await generate_strategy(generator, _course(), _RACE, _ATHLETE, None, None)
-    assert result.generated_by == "llm"
-    assert result.estimated_time_sec == 630.0  # 300*1 + 330*1, recalculé (pas 9999)
-    assert result.average_pace_sec_per_km == 315.0
+    outcome = await generate_strategy(generator, _course(), _RACE, _ATHLETE, None, None)
+    assert outcome.strategy.generated_by == "llm"
+    assert outcome.strategy.estimated_time_sec == 630.0  # 300*1 + 330*1, recalculé (pas 9999)
+    assert outcome.strategy.average_pace_sec_per_km == 315.0
+    assert outcome.quality.llm_guardrails_passed is True
 
 
 async def test_aberrant_strategy_falls_back_to_baseline() -> None:
     generator = _FakeGenerator(_strategy([(60.0, 0.0), (60.0, 5.0)]))  # allures impossibles
-    result = await generate_strategy(generator, _course(), _RACE, _ATHLETE, None, None)
-    assert result.generated_by == "baseline"
+    outcome = await generate_strategy(generator, _course(), _RACE, _ATHLETE, None, None)
+    assert outcome.strategy.generated_by == "baseline"
+    assert outcome.quality.llm_guardrails_passed is False
 
 
 async def test_generator_failure_falls_back_to_baseline() -> None:
     generator = _FakeGenerator(exc=RuntimeError("LLM down"))
-    result = await generate_strategy(generator, _course(), _RACE, _ATHLETE, None, None)
-    assert result.generated_by == "baseline"
+    outcome = await generate_strategy(generator, _course(), _RACE, _ATHLETE, None, None)
+    assert outcome.strategy.generated_by == "baseline"

@@ -7,6 +7,7 @@ renvoie la stratégie déterministe M1. La provenance (`generated_by`) reste fia
 une métrique qualité (origine, garde-fous, écart à la baseline, latence).
 """
 
+from dataclasses import dataclass
 from time import perf_counter
 
 from app.domain.models import (
@@ -20,7 +21,15 @@ from app.domain.models import (
 from app.domain.ports import StrategyGenerator
 from app.services.baseline_strategy import build_baseline_strategy
 from app.services.strategy_guardrails import check_strategy
-from app.services.strategy_quality import compute_quality, log_quality
+from app.services.strategy_quality import StrategyQuality, compute_quality, log_quality
+
+
+@dataclass(frozen=True)
+class GenerationOutcome:
+    """Stratégie retenue et sa métrique qualité (journalisable)."""
+
+    strategy: PaceStrategy
+    quality: StrategyQuality
 
 
 async def generate_strategy(
@@ -30,7 +39,7 @@ async def generate_strategy(
     athlete: AthleteProfile | None,
     weather: WeatherContext | None,
     surface: SurfaceContext | None,
-) -> PaceStrategy:
+) -> GenerationOutcome:
     """Renvoie la stratégie LLM si elle passe les garde-fous, sinon le fallback baseline."""
     start = perf_counter()
     baseline = build_baseline_strategy(course, athlete)
@@ -47,12 +56,11 @@ async def generate_strategy(
         strategy = baseline
 
     latency_ms = (perf_counter() - start) * 1000
-    log_quality(
-        compute_quality(
-            strategy, baseline, llm_guardrails_passed=llm_guardrails_passed, latency_ms=latency_ms
-        )
+    quality = compute_quality(
+        strategy, baseline, llm_guardrails_passed=llm_guardrails_passed, latency_ms=latency_ms
     )
-    return strategy
+    log_quality(quality)
+    return GenerationOutcome(strategy=strategy, quality=quality)
 
 
 def recompute_totals(strategy: PaceStrategy, course: CourseProfile) -> PaceStrategy:
