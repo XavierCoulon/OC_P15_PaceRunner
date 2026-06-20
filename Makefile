@@ -31,6 +31,12 @@ eval: ## Évalue le LLM vs baseline sur les cas types (nécessite Ollama)
 db-ping: ## Vérifie la connexion à la base (DATABASE_URL)
 	PYTHONPATH=backend uv run python -m app.db
 
+migration: ## Génère une migration Alembic — usage : make migration m="message"
+	uv run alembic revision --autogenerate -m "$(m)"
+
+migrate: ## Applique les migrations (upgrade head)
+	uv run alembic upgrade head
+
 check: lint typecheck test ## Vérifie tout (lint + types + tests), comme la CI
 
 clean: ## Supprime les caches Python/outils
