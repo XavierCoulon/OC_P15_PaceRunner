@@ -15,6 +15,7 @@ dependencies = [
     "python-multipart>=0.0.32",
     "sqlmodel>=0.0.38",
     "asyncpg>=0.31.0",
+    "greenlet>=3.5.2",
 ]
 
 [tool.uv]
