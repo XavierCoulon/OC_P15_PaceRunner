@@ -13,6 +13,9 @@ install: ## Installe les dépendances (uv sync)
 run: ## Lance l'API en local (rechargement auto) — PORT=8000 par défaut
 	uv run uvicorn app.main:app --app-dir backend --reload --port $(PORT)
 
+front: ## Lance le front Streamlit (port 7860)
+	uv run streamlit run front/app.py --server.port 7860
+
 test: ## Lance les tests
 	uv run pytest
 
