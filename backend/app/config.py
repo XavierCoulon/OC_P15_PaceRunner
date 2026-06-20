@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     app_name: str = "PaceRunner"
     environment: str = "dev"
 
+    # Front → backend (le front appelle l'API ; en prod combiné : localhost:8000)
+    backend_url: str = "http://localhost:8000"
+
     # Sécurité API (cf. D4) — token Bearer attendu sur les endpoints protégés
     api_token: SecretStr | None = None
 

@@ -1,12 +1,27 @@
 """Front Streamlit — page « Génération de stratégie ».
 
-K1 : layout + formulaire (GPX, date/heure, objectif). L'appel au backend (`POST /strategy`)
-et la restitution (graphes, tableau km/km, badge IA/fallback) viennent aux tickets K2–K5.
+K1 : layout + formulaire. K2 : appel backend (`POST /strategy`), états et validation.
+La restitution riche (graphes, tableau km/km) vient aux tickets K3–K5.
 """
 
 from datetime import date, datetime, time
 
 import streamlit as st
+
+from api_client import BackendError, generate_strategy
+
+
+def _fmt_duration(seconds: float) -> str:
+    total = round(seconds)
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
+def _fmt_pace(seconds_per_km: float) -> str:
+    minutes, secs = divmod(round(seconds_per_km), 60)
+    return f"{minutes}:{secs:02d} /km"
+
 
 st.set_page_config(page_title="PaceRunner", page_icon="🏃", layout="wide")
 
@@ -48,15 +63,31 @@ if submitted:
         st.warning("Merci de fournir un fichier GPX.")
     elif isinstance(race_date, date) and isinstance(race_time, time):
         race_datetime = datetime.combine(race_date, race_time)
-        st.session_state["request"] = {
-            "filename": gpx_file.name,
-            "race_datetime": race_datetime.isoformat(),
-            "goal": _goal_text(),
-        }
-        st.success(
-            f"Paramètres validés — **{gpx_file.name}**, "
-            f"course le **{race_datetime:%d/%m/%Y à %H:%M}**, objectif : *{_goal_text()}*."
-        )
-        st.info("Prochaine étape : appel du backend `POST /strategy` (ticket K2).")
+        with st.spinner("Génération de la stratégie… (le modèle peut prendre quelques secondes)"):
+            try:
+                strategy = generate_strategy(
+                    gpx_bytes=gpx_file.getvalue(),
+                    filename=gpx_file.name,
+                    race_datetime_iso=race_datetime.isoformat(),
+                    goal=_goal_text(),
+                )
+            except BackendError as exc:
+                strategy = None
+                st.error(str(exc))
+
+        if strategy is not None:
+            st.session_state["strategy"] = strategy.model_dump()
+            badge = "🤖 Stratégie IA" if strategy.generated_by == "llm" else "🛡️ Repli déterministe"
+            st.success(f"Stratégie générée — **{badge}**")
+            if strategy.generated_by != "llm":
+                st.warning("Le modèle n'a pas produit de stratégie valide : repli sur la baseline.")
+
+            cols = st.columns(3)
+            cols[0].metric("Distance", f"{strategy.distance_km:.2f} km")
+            cols[1].metric("Temps estimé", _fmt_duration(strategy.estimated_time_sec))
+            cols[2].metric("Allure moyenne", _fmt_pace(strategy.average_pace_sec_per_km))
+            if strategy.summary:
+                st.caption(strategy.summary)
+            st.caption("Profil de dénivelé, courbe d'allure et tableau km/km : tickets K3–K5.")
 else:
     st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer la stratégie ».")
