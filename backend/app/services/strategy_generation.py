@@ -72,8 +72,7 @@ def recompute_totals(strategy: PaceStrategy, course: CourseProfile) -> PaceStrat
         for plan in strategy.km_plans
     ]
     total_time = sum(
-        plan.target_pace_sec_per_km * dist
-        for plan, dist in zip(km_plans, distances, strict=True)
+        plan.target_pace_sec_per_km * dist for plan, dist in zip(km_plans, distances, strict=True)
     )
     average_pace = total_time / course.distance_km
     return strategy.model_copy(
