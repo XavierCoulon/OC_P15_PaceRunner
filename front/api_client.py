@@ -8,7 +8,7 @@ porteurs d'un message lisible pour l'UI.
 import httpx
 
 from app.config import get_settings
-from app.domain.models import PaceStrategy
+from app.domain.models import StrategyResponse
 
 _TIMEOUT_SECONDS = 180.0
 
@@ -19,7 +19,7 @@ class BackendError(Exception):
 
 def generate_strategy(
     *, gpx_bytes: bytes, filename: str, race_datetime_iso: str, goal: str
-) -> PaceStrategy:
+) -> StrategyResponse:
     settings = get_settings()
     token = settings.api_token.get_secret_value() if settings.api_token else ""
     url = f"{settings.backend_url}/strategy"
@@ -43,7 +43,7 @@ def generate_strategy(
         raise BackendError(f"Erreur backend (HTTP {response.status_code}).")
 
     try:
-        return PaceStrategy.model_validate(response.json())
+        return StrategyResponse.model_validate(response.json())
     except ValueError as exc:
         raise BackendError("Réponse du backend invalide.") from exc
 

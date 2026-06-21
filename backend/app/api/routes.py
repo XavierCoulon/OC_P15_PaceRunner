@@ -21,7 +21,12 @@ from app.api.security import require_api_token
 from app.config import get_settings
 from app.db.history import HistoryReader, NullHistoryReader, SqlHistoryReader
 from app.db.read_models import RunDetail, RunStats, RunSummary
-from app.domain.models import AthleteProfile, PaceStrategy, RaceContext
+from app.domain.models import (
+    AthleteProfile,
+    CourseSummary,
+    RaceContext,
+    StrategyResponse,
+)
 from app.domain.ports import (
     AthleteProvider,
     ElevationProvider,
@@ -88,7 +93,7 @@ async def get_athlete(
 
 @router.post(
     "/strategy",
-    response_model=PaceStrategy,
+    response_model=StrategyResponse,
     dependencies=[Depends(require_api_token)],
 )
 async def create_strategy(
@@ -100,8 +105,8 @@ async def create_strategy(
     generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
     repository: Annotated[PredictionRepository, Depends(get_prediction_repository)],
     goal: Annotated[str | None, Form(description="Objectif (optionnel).")] = None,
-) -> PaceStrategy:
-    """Exécute le pipeline complet : GPX + date/heure → stratégie d'allure km par km."""
+) -> StrategyResponse:
+    """Pipeline complet : GPX + date/heure → stratégie + contexte (profil, COROS, météo)."""
     raw = await gpx.read()
     try:
         content = raw.decode("utf-8")
@@ -113,7 +118,7 @@ async def create_strategy(
 
     race = RaceContext(race_datetime=race_datetime, goal=goal)
     try:
-        return await build_strategy(
+        result = await build_strategy(
             content,
             race,
             elevation=elevation,
@@ -127,6 +132,20 @@ async def create_strategy(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
+
+    return StrategyResponse(
+        strategy=result.strategy,
+        course=CourseSummary(
+            distance_km=result.course.distance_km,
+            elevation_gain_m=result.course.elevation_gain_m,
+            elevation_loss_m=result.course.elevation_loss_m,
+            start_lat=result.course.start_lat,
+            start_lon=result.course.start_lon,
+            segments=result.course.segments,
+        ),
+        athlete=result.athlete,
+        weather=result.weather,
+    )
 
 
 @router.get(

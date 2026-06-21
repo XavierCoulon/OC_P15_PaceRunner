@@ -15,8 +15,8 @@ from app.adapters.coros_athlete import CorosAthleteProvider
 from app.adapters.llm_openai import OpenAICompatibleStrategyGenerator
 from app.adapters.open_meteo import OpenMeteoWeatherProvider
 from app.adapters.open_topo_data import OpenTopoDataProvider
-from app.domain.models import PaceStrategy, RaceContext
-from app.services.strategy_service import build_strategy
+from app.domain.models import RaceContext
+from app.services.strategy_service import PipelineResult, build_strategy
 
 _OTD = "https://api.opentopodata.org/v1"
 _FORECAST = "https://api.open-meteo.com/v1/forecast"
@@ -104,7 +104,7 @@ def _llm_handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
 
-async def _run() -> PaceStrategy:
+async def _run() -> PipelineResult:
     return await build_strategy(
         _gpx(),
         RaceContext(race_datetime=_when(), goal="finir"),
@@ -122,12 +122,15 @@ async def test_pipeline_end_to_end_with_real_adapters() -> None:
     respx.get(url__startswith=_AIR).mock(return_value=_air_response())
     respx.post(_CHAT).mock(side_effect=_llm_handler)
 
-    strategy = await _run()
+    result = await _run()
 
-    assert strategy.generated_by == "llm"
-    assert strategy.distance_km > 0
-    assert len(strategy.km_plans) >= 1
-    assert strategy.average_pace_sec_per_km > 0
+    assert result.strategy.generated_by == "llm"
+    assert result.strategy.distance_km > 0
+    assert len(result.strategy.km_plans) >= 1
+    assert result.strategy.average_pace_sec_per_km > 0
+    # contexte exposé : météo (tier prévision) et profil
+    assert result.weather is not None and result.weather.source == "forecast"
+    assert result.course.elevation_gain_m >= 0
 
 
 @respx.mock
@@ -141,7 +144,7 @@ async def test_pipeline_falls_back_to_baseline_when_llm_fails() -> None:
         )
     )
 
-    strategy = await _run()
+    result = await _run()
 
-    assert strategy.generated_by == "baseline"
-    assert len(strategy.km_plans) >= 1
+    assert result.strategy.generated_by == "baseline"
+    assert len(result.strategy.km_plans) >= 1

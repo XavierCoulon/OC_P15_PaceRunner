@@ -8,6 +8,7 @@ la réponse (un échec d'écriture est seulement loggé).
 
 import hashlib
 import logging
+from dataclasses import dataclass
 
 from app.adapters.gpx_parser import parse_gpx
 from app.domain.models import (
@@ -31,6 +32,17 @@ from app.services.strategy_generation import GenerationOutcome, generate_strateg
 _logger = logging.getLogger("pacerunner.journal")
 
 
+@dataclass(frozen=True)
+class PipelineResult:
+    """Stratégie produite et le contexte consolidé qui l'a nourrie."""
+
+    strategy: PaceStrategy
+    course: CourseProfile
+    athlete: AthleteProfile | None
+    weather: WeatherContext | None
+    surface: SurfaceContext | None
+
+
 async def build_strategy(
     gpx_content: str,
     race: RaceContext,
@@ -41,8 +53,8 @@ async def build_strategy(
     generator: StrategyGenerator,
     surface: SurfaceProvider | None = None,
     repository: PredictionRepository | None = None,
-) -> PaceStrategy:
-    """Exécute le pipeline complet et renvoie la stratégie d'allure.
+) -> PipelineResult:
+    """Exécute le pipeline complet et renvoie la stratégie + le contexte utilisé.
 
     Lève `GpxParseError` si le GPX est illisible (les autres étapes sont tolérantes).
     """
@@ -60,7 +72,13 @@ async def build_strategy(
         await _journal(
             repository, gpx_hash, course, race, athlete, weather_ctx, surface_ctx, outcome
         )
-    return outcome.strategy
+    return PipelineResult(
+        strategy=outcome.strategy,
+        course=course,
+        athlete=athlete,
+        weather=weather_ctx,
+        surface=surface_ctx,
+    )
 
 
 async def _journal(

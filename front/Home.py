@@ -11,8 +11,14 @@ import pandas as pd
 import streamlit as st
 
 from api_client import BackendError, generate_strategy
-from app.domain.models import PaceStrategy
+from app.domain.models import PaceStrategy, WeatherContext
 from viz import strategy_rows
+
+_WEATHER_SOURCE_LABEL = {
+    "forecast": "Prévision",
+    "seasonal": "Tendance saisonnière",
+    "climatology": "Climatologie (normales)",
+}
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -25,6 +31,32 @@ def _fmt_duration(seconds: float) -> str:
 def _fmt_pace(seconds_per_km: float) -> str:
     minutes, secs = divmod(round(seconds_per_km), 60)
     return f"{minutes}:{secs:02d} /km"
+
+
+def _render_weather(weather: WeatherContext | None) -> None:
+    if weather is None or weather.source is None:
+        st.info("Conditions jour J indisponibles (hors horizon de prévision).")
+        return
+    label = _WEATHER_SOURCE_LABEL.get(weather.source, weather.source)
+    st.subheader(f"Conditions jour J — {label}")
+    cols = st.columns(4)
+    cols[0].metric(
+        "Température",
+        f"{weather.temperature_c:.0f} °C" if weather.temperature_c is not None else "—",
+    )
+    cols[1].metric(
+        "Vent", f"{weather.wind_speed_kmh:.0f} km/h" if weather.wind_speed_kmh is not None else "—"
+    )
+    cols[2].metric(
+        "Précip.",
+        f"{weather.precipitation_mm:.1f} mm" if weather.precipitation_mm is not None else "—",
+    )
+    cols[3].metric(
+        "Qualité air",
+        f"{weather.air_quality_index:.0f}" if weather.air_quality_index is not None else "—",
+    )
+    if weather.last_year_temperature_c is not None:
+        st.caption(f"Même date l'an dernier : {weather.last_year_temperature_c:.0f} °C")
 
 
 def _render_charts(strategy: PaceStrategy) -> None:
@@ -99,31 +131,38 @@ if submitted:
         race_datetime = datetime.combine(race_date, race_time)
         with st.spinner("Génération de la stratégie… (le modèle peut prendre quelques secondes)"):
             try:
-                strategy = generate_strategy(
+                response = generate_strategy(
                     gpx_bytes=gpx_file.getvalue(),
                     filename=gpx_file.name,
                     race_datetime_iso=race_datetime.isoformat(),
                     goal=_goal_text(),
                 )
             except BackendError as exc:
-                strategy = None
+                response = None
                 st.error(str(exc))
 
-        if strategy is not None:
-            st.session_state["strategy"] = strategy.model_dump()
+        if response is not None:
+            strategy = response.strategy
+            st.session_state["strategy"] = response.model_dump()
             badge = "🤖 Stratégie IA" if strategy.generated_by == "llm" else "🛡️ Repli déterministe"
             st.success(f"Stratégie générée — **{badge}**")
             if strategy.generated_by != "llm":
                 st.warning("Le modèle n'a pas produit de stratégie valide : repli sur la baseline.")
 
-            cols = st.columns(3)
-            cols[0].metric("Distance", f"{strategy.distance_km:.2f} km")
-            cols[1].metric("Temps estimé", _fmt_duration(strategy.estimated_time_sec))
-            cols[2].metric("Allure moyenne", _fmt_pace(strategy.average_pace_sec_per_km))
+            cols = st.columns(4)
+            cols[0].metric("Distance", f"{response.course.distance_km:.2f} km")
+            cols[1].metric("Dénivelé +", f"{response.course.elevation_gain_m:.0f} m")
+            cols[2].metric("Temps estimé", _fmt_duration(strategy.estimated_time_sec))
+            cols[3].metric("Allure moyenne", _fmt_pace(strategy.average_pace_sec_per_km))
+            if response.athlete and response.athlete.threshold_pace_sec_per_km:
+                st.caption(
+                    f"Allure seuil COROS : {_fmt_pace(response.athlete.threshold_pace_sec_per_km)}"
+                )
             if strategy.summary:
                 st.caption(strategy.summary)
 
+            _render_weather(response.weather)
             _render_charts(strategy)
-            st.caption("Tableau km/km (K4) et bandeau météo jour J (réponse à enrichir) à venir.")
+            st.caption("Tableau km/km détaillé + export CSV : ticket K4.")
 else:
     st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer la stratégie ».")

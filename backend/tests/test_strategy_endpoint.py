@@ -79,11 +79,15 @@ def test_strategy_returns_pace_strategy(client: TestClient) -> None:
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["distance_km"] > 0
-    assert len(body["km_plans"]) >= 1
+    strategy = body["strategy"]
+    assert strategy["distance_km"] > 0
+    assert len(strategy["km_plans"]) >= 1
     # LLM stubé en échec → fallback baseline déterministe.
-    assert body["generated_by"] == "baseline"
-    assert body["average_pace_sec_per_km"] > 0
+    assert strategy["generated_by"] == "baseline"
+    assert strategy["average_pace_sec_per_km"] > 0
+    # contexte enrichi exposé
+    assert body["course"]["elevation_gain_m"] >= 0
+    assert "weather" in body and "athlete" in body
 
 
 def test_strategy_rejects_invalid_gpx(client: TestClient) -> None:

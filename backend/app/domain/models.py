@@ -125,3 +125,23 @@ class PaceStrategy(_Frozen):
     km_plans: list[KmPlan] = Field(min_length=1)
     summary: str | None = None
     generated_by: str = Field(description="Origine de la stratégie : « llm » ou « baseline ».")
+
+
+class CourseSummary(_Frozen):
+    """Résumé du parcours pour la réponse API (sans la liste complète des points)."""
+
+    distance_km: float = Field(gt=0)
+    elevation_gain_m: float = Field(ge=0)
+    elevation_loss_m: float = Field(ge=0)
+    start_lat: float
+    start_lon: float
+    segments: list[ElevationSegment] = Field(default_factory=list)
+
+
+class StrategyResponse(_Frozen):
+    """Réponse enrichie de `POST /strategy` : stratégie + données qui l'ont nourrie."""
+
+    strategy: PaceStrategy
+    course: CourseSummary
+    athlete: AthleteProfile | None = None
+    weather: WeatherContext | None = None
