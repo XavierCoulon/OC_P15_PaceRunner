@@ -46,7 +46,7 @@ async def generate_strategy(
     llm_guardrails_passed = False
 
     try:
-        raw = await generator.generate(course, race, athlete, weather, surface)
+        raw = await generator.generate(course, race, athlete, weather, surface, baseline=baseline)
         if check_strategy(raw, course, athlete):
             strategy = baseline
         else:

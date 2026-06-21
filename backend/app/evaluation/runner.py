@@ -34,7 +34,9 @@ async def run_evaluation(generator: StrategyGenerator) -> list[EvalRow]:
 async def _evaluate_case(generator: StrategyGenerator, case: EvalCase) -> EvalRow:
     baseline = build_baseline_strategy(case.course, case.athlete)
     try:
-        llm = await generator.generate(case.course, case.race, case.athlete, None, None)
+        llm = await generator.generate(
+            case.course, case.race, case.athlete, None, None, baseline=baseline
+        )
         # Comme en production : on recalcule les totaux (l'arithmétique du LLM n'est pas fiable).
         llm = recompute_totals(llm, case.course)
     except Exception:

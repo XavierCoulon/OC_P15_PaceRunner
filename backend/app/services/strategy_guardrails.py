@@ -15,9 +15,11 @@ from app.services.baseline_strategy import build_baseline_strategy
 _ABS_MIN_PACE = 120.0
 _ABS_MAX_PACE = 1200.0
 
-# Bornes relatives à l'allure seuil.
+# Bornes relatives à l'allure seuil. Borne haute large : en haute montagne (murs +20%),
+# l'allure réaliste (power-hiking) atteint ~3× le seuil ; la cohérence fine est assurée
+# par le garde-fou d'écart à la baseline grade-adjusted.
 _THRESHOLD_MIN_FACTOR = 0.6
-_THRESHOLD_MAX_FACTOR = 2.5
+_THRESHOLD_MAX_FACTOR = 4.0
 
 # Seuils de pente (%) pour distinguer montée / descente.
 _UPHILL_PCT = 1.0

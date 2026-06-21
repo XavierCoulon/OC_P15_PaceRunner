@@ -57,6 +57,7 @@ class StrategyGenerator(Protocol):
         athlete: AthleteProfile | None,
         weather: WeatherContext | None,
         surface: SurfaceContext | None,
+        baseline: PaceStrategy | None = None,
     ) -> PaceStrategy: ...
 
 

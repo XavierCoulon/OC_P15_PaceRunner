@@ -71,6 +71,7 @@ class _FakeGenerator:
         athlete: AthleteProfile | None,
         weather: WeatherContext | None,
         surface: SurfaceContext | None,
+        baseline: PaceStrategy | None = None,
     ) -> PaceStrategy:
         if self._exc is not None:
             raise self._exc

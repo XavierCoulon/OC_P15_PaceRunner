@@ -66,6 +66,7 @@ class _FakeGenerator:
         athlete: AthleteProfile | None,
         weather: WeatherContext | None,
         surface: SurfaceContext | None,
+        baseline: PaceStrategy | None = None,
     ) -> PaceStrategy:
         plans = [
             KmPlan(

@@ -51,12 +51,13 @@ class OpenAICompatibleStrategyGenerator:
         athlete: AthleteProfile | None,
         weather: WeatherContext | None,
         surface: SurfaceContext | None,
+        baseline: PaceStrategy | None = None,
     ) -> PaceStrategy:
         messages: list[Message] = [
             {"role": "system", "content": STRATEGY_SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": _build_user_message(course, race, athlete, weather, surface),
+                "content": _build_user_message(course, race, athlete, weather, surface, baseline),
             },
         ]
         raw = await self._chat(messages)
@@ -102,6 +103,7 @@ def _build_user_message(
     athlete: AthleteProfile | None,
     weather: WeatherContext | None,
     surface: SurfaceContext | None,
+    baseline: PaceStrategy | None = None,
 ) -> str:
     payload: dict[str, Any] = {
         "course": {
@@ -122,4 +124,10 @@ def _build_user_message(
         "weather": weather.model_dump() if weather is not None else None,
         "surface": surface.model_dump() if surface is not None else None,
     }
+    if baseline is not None:
+        # Référence déterministe réaliste (grade-adjusted) : point de départ à ajuster.
+        payload["baseline_pace_sec_per_km"] = [
+            {"km_index": p.km_index, "pace_sec_per_km": p.target_pace_sec_per_km}
+            for p in baseline.km_plans
+        ]
     return json.dumps(payload, ensure_ascii=False)
