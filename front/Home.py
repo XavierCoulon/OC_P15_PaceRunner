@@ -75,18 +75,19 @@ def _render_charts(strategy: PaceStrategy) -> None:
     st.altair_chart(elevation, use_container_width=True)
 
     st.subheader("Allure conseillée par km")
-    pace = (
-        alt.Chart(df)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("km:Q", title="Kilomètre"),
-            # axe inversé : une allure plus rapide (moins de secondes) est plus haute
-            y=alt.Y("pace_sec:Q", title="Allure (s/km)", scale=alt.Scale(reverse=True)),
-            color=alt.Color("effort:N", title="Effort"),
-            tooltip=["km", alt.Tooltip("pace_label", title="allure"), "effort", "gradient_pct"],
-        )
+    # Ligne continue (neutre) + points colorés par effort : colorer la ligne elle-même
+    # la découperait en segments séparés par couleur (trous aux changements d'effort).
+    pace_base = alt.Chart(df).encode(
+        x=alt.X("km:Q", title="Kilomètre"),
+        # axe inversé : une allure plus rapide (moins de secondes) est plus haute
+        y=alt.Y("pace_sec:Q", title="Allure (s/km)", scale=alt.Scale(reverse=True)),
     )
-    st.altair_chart(pace, use_container_width=True)
+    pace_line = pace_base.mark_line(color="#9aa0a6")
+    pace_points = pace_base.mark_point(filled=True, size=70, opacity=1).encode(
+        color=alt.Color("effort:N", title="Effort"),
+        tooltip=["km", alt.Tooltip("pace_label", title="allure"), "effort", "gradient_pct"],
+    )
+    st.altair_chart(pace_line + pace_points, use_container_width=True)
 
 
 st.set_page_config(page_title="PaceRunner", page_icon="🏃", layout="wide")
