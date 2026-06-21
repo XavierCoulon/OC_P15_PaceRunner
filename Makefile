@@ -27,8 +27,9 @@ dev: ## Lance Ollama (si éteint) + backend (:8000) + front (:7860) — Ctrl-C a
 test: ## Lance les tests
 	uv run pytest
 
-lint: ## Lint (ruff)
+lint: ## Lint + vérif format (comme la CI)
 	uv run ruff check
+	uv run ruff format --check
 
 format: ## Formate le code (ruff)
 	uv run ruff format
