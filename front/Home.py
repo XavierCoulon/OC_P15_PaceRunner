@@ -12,7 +12,7 @@ import streamlit as st
 
 from api_client import BackendError, generate_strategy
 from app.domain.models import PaceStrategy, WeatherContext
-from viz import strategy_rows
+from viz import km_table_rows, strategy_rows
 
 _WEATHER_SOURCE_LABEL = {
     "forecast": "Prévision",
@@ -90,6 +90,18 @@ def _render_charts(strategy: PaceStrategy) -> None:
     st.altair_chart(pace_line + pace_points, use_container_width=True)
 
 
+def _render_km_table(strategy: PaceStrategy) -> None:
+    st.subheader("Stratégie kilomètre par kilomètre")
+    table = pd.DataFrame(km_table_rows(strategy))
+    st.dataframe(table, use_container_width=True, hide_index=True)
+    st.download_button(
+        "⬇️ Exporter en CSV",
+        data=table.to_csv(index=False).encode("utf-8"),
+        file_name="strategie_pacerunner.csv",
+        mime="text/csv",
+    )
+
+
 st.set_page_config(page_title="PaceRunner", page_icon="🏃", layout="wide")
 
 st.title("🏃 PaceRunner")
@@ -164,6 +176,6 @@ if submitted:
 
             _render_weather(response.weather)
             _render_charts(strategy)
-            st.caption("Tableau km/km détaillé + export CSV : ticket K4.")
+            _render_km_table(strategy)
 else:
     st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer la stratégie ».")

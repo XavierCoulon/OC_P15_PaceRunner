@@ -27,3 +27,20 @@ def strategy_rows(strategy: PaceStrategy) -> list[Row]:
             }
         )
     return rows
+
+
+def km_table_rows(strategy: PaceStrategy) -> list[Row]:
+    """Lignes du tableau de restitution km/km (lisible + exportable CSV)."""
+    rows: list[Row] = []
+    for plan in strategy.km_plans:
+        minutes, seconds = divmod(round(plan.target_pace_sec_per_km), 60)
+        rows.append(
+            {
+                "Km": plan.km_index,
+                "Allure": f"{minutes}:{seconds:02d}/km",
+                "Pente %": round(plan.gradient_pct, 1),
+                "Effort": plan.effort,
+                "Note": plan.note or "",
+            }
+        )
+    return rows

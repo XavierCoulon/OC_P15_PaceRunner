@@ -1,7 +1,7 @@
 """Tests de la préparation des données de visualisation (front/viz.py)."""
 
 from app.domain.models import KmPlan, PaceStrategy
-from viz import strategy_rows
+from viz import km_table_rows, strategy_rows
 
 
 def _strategy() -> PaceStrategy:
@@ -27,3 +27,12 @@ def test_strategy_rows_builds_profile_and_pace() -> None:
     assert rows[1]["pace_label"] == "6:00"
     assert rows[1]["effort"] == "hard"
     assert rows[1]["gradient_pct"] == 6.0
+
+
+def test_km_table_rows() -> None:
+    rows = km_table_rows(_strategy())
+    assert len(rows) == 2
+    assert rows[1]["Km"] == 2
+    assert rows[1]["Allure"] == "6:00/km"
+    assert rows[1]["Effort"] == "hard"
+    assert rows[1]["Pente %"] == 6.0
