@@ -11,7 +11,7 @@ import httpx
 
 from app.config import get_settings
 from app.db.read_models import RunStats, RunSummary
-from app.domain.models import StrategyResponse
+from app.domain.models import AthleteProfile, CourseSummary, StrategyResponse, WeatherContext
 
 _TIMEOUT_SECONDS = 180.0
 _GET_TIMEOUT_SECONDS = 30.0
@@ -52,9 +52,50 @@ def generate_strategy(
         raise BackendError("Réponse du backend invalide.") from exc
 
 
+def fetch_profile(*, gpx_bytes: bytes, filename: str) -> CourseSummary:
+    """Aperçu rapide du parcours (`POST /profile`) : profil + tracé, sans la stratégie."""
+    settings = get_settings()
+    token = settings.api_token.get_secret_value() if settings.api_token else ""
+    url = f"{settings.backend_url}/profile"
+    files = {"gpx": (filename, gpx_bytes, "application/gpx+xml")}
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = httpx.post(url, files=files, headers=headers, timeout=_GET_TIMEOUT_SECONDS)
+    except httpx.RequestError as exc:
+        raise BackendError(f"Backend injoignable ({exc}).") from exc
+    if response.status_code == 401:
+        raise BackendError("Authentification refusée — vérifie le token API.")
+    if response.status_code == 422:
+        raise BackendError(f"Fichier GPX invalide : {_detail(response)}")
+    if response.status_code != 200:
+        raise BackendError(f"Erreur backend (HTTP {response.status_code}).")
+    try:
+        return CourseSummary.model_validate(response.json())
+    except ValueError as exc:
+        raise BackendError("Réponse de profil invalide.") from exc
+
+
+def fetch_athlete() -> AthleteProfile:
+    """Forme de l'athlète COROS (`GET /athlete`)."""
+    data = _get("/athlete", None)
+    try:
+        return AthleteProfile.model_validate(data)
+    except ValueError as exc:
+        raise BackendError("Réponse athlète invalide.") from exc
+
+
+def fetch_weather(*, lat: float, lon: float, race_datetime_iso: str) -> WeatherContext:
+    """Conditions au point donné pour la date/heure (`GET /weather`)."""
+    data = _get("/weather", {"lat": str(lat), "lon": str(lon), "race_datetime": race_datetime_iso})
+    try:
+        return WeatherContext.model_validate(data)
+    except ValueError as exc:
+        raise BackendError("Réponse météo invalide.") from exc
+
+
 def fetch_history(*, limit: int = 20, offset: int = 0) -> list[RunSummary]:
     """Liste paginée des stratégies passées (`GET /history`)."""
-    data = _get("/history", {"limit": limit, "offset": offset})
+    data = _get("/history", {"limit": str(limit), "offset": str(offset)})
     try:
         return [RunSummary.model_validate(row) for row in data]
     except (ValueError, TypeError) as exc:
@@ -70,7 +111,7 @@ def fetch_stats() -> RunStats:
         raise BackendError("Réponse de statistiques invalide.") from exc
 
 
-def _get(path: str, params: dict[str, int] | None) -> Any:
+def _get(path: str, params: dict[str, str] | None) -> Any:
     settings = get_settings()
     token = settings.api_token.get_secret_value() if settings.api_token else ""
     url = f"{settings.backend_url}{path}"

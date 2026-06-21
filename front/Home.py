@@ -4,7 +4,6 @@ K1 : layout + formulaire. K2 : appel backend. K3 : profil de dénivelé + courbe
 Le tableau km/km (K4) et le bandeau météo (réponse à enrichir) viennent ensuite.
 """
 
-import time
 from datetime import date, datetime
 from datetime import time as dtime
 
@@ -13,12 +12,16 @@ import pandas as pd
 import pydeck as pdk
 import streamlit as st
 
-from api_client import BackendError, generate_strategy
+from api_client import (
+    BackendError,
+    fetch_athlete,
+    fetch_profile,
+    fetch_weather,
+    generate_strategy,
+)
 from app.config import get_settings
 from app.domain.models import AthleteProfile, PaceStrategy, RoutePoint, WeatherContext
 from viz import km_table_rows, strategy_rows, weather_summary
-
-_REVEAL_DELAY = 0.35
 
 _WEATHER_SOURCE_LABEL = {
     "forecast": "Prévision",
@@ -198,57 +201,68 @@ if submitted:
     if gpx_file is None:
         st.warning("Merci de fournir un fichier GPX.")
     elif isinstance(race_date, date) and isinstance(race_time, dtime):
-        race_datetime = datetime.combine(race_date, race_time)
-        with st.spinner("Génération de la stratégie… (le modèle peut prendre quelques secondes)"):
+        gpx_bytes = gpx_file.getvalue()
+        filename = gpx_file.name
+        race_iso = datetime.combine(race_date, race_time).isoformat()
+
+        # 1) Profil + carte (rapide) — affiché dès que prêt.
+        try:
+            with st.spinner("📍 Analyse du parcours…"):
+                profile = fetch_profile(gpx_bytes=gpx_bytes, filename=filename)
+        except BackendError as exc:
+            st.error(str(exc))
+            st.stop()
+
+        cols = st.columns(2)
+        cols[0].metric("Distance", f"{profile.distance_km:.2f} km")
+        cols[1].metric("Dénivelé +", f"{profile.elevation_gain_m:.0f} m")
+        _render_map(profile.route)
+
+        # 2) Forme COROS.
+        with st.spinner("🏃 Récupération de la forme COROS…"):
             try:
+                athlete = fetch_athlete()
+            except BackendError:
+                athlete = None
+        _render_athlete(athlete)
+
+        # 3) Météo jour J.
+        with st.spinner("🌤️ Récupération de la météo jour J…"):
+            try:
+                weather = fetch_weather(
+                    lat=profile.start_lat, lon=profile.start_lon, race_datetime_iso=race_iso
+                )
+            except BackendError:
+                weather = None
+        _render_weather(weather)
+
+        # 4) Stratégie (génération LLM — le plus long).
+        try:
+            with st.spinner("🧠 Génération de la stratégie (IA)…"):
                 response = generate_strategy(
-                    gpx_bytes=gpx_file.getvalue(),
-                    filename=gpx_file.name,
-                    race_datetime_iso=race_datetime.isoformat(),
+                    gpx_bytes=gpx_bytes,
+                    filename=filename,
+                    race_datetime_iso=race_iso,
                     goal=_goal_text(),
                 )
-            except BackendError as exc:
-                response = None
-                st.error(str(exc))
+        except BackendError as exc:
+            st.error(str(exc))
+            st.stop()
 
-        if response is not None:
-            strategy = response.strategy
-            st.session_state["strategy"] = response.model_dump()
+        strategy = response.strategy
+        st.session_state["strategy"] = response.model_dump()
+        badge = "🤖 Stratégie IA" if strategy.generated_by == "llm" else "🛡️ Repli déterministe"
+        st.success(f"Stratégie générée — **{badge}**")
+        if strategy.generated_by != "llm":
+            st.warning("Le modèle n'a pas produit de stratégie valide : repli sur la baseline.")
 
-            # Révélation progressive : checklist des étapes du pipeline.
-            with st.status("Analyse du parcours…", expanded=True) as status:
-                for step in (
-                    "📍 Parcours GPX analysé",
-                    "🗺️ Tracé géolocalisé",
-                    "🏃 Forme COROS récupérée",
-                    "🌤️ Météo jour J récupérée",
-                    "🧠 Stratégie générée",
-                ):
-                    st.write(step)
-                    time.sleep(_REVEAL_DELAY)
-                status.update(label="Analyse terminée ✅", state="complete", expanded=False)
+        cols = st.columns(2)
+        cols[0].metric("Temps estimé", _fmt_duration(strategy.estimated_time_sec))
+        cols[1].metric("Allure moyenne", _fmt_pace(strategy.average_pace_sec_per_km))
+        if strategy.summary:
+            st.caption(strategy.summary)
 
-            badge = "🤖 Stratégie IA" if strategy.generated_by == "llm" else "🛡️ Repli déterministe"
-            st.success(f"Stratégie générée — **{badge}**")
-            if strategy.generated_by != "llm":
-                st.warning("Le modèle n'a pas produit de stratégie valide : repli sur la baseline.")
-
-            cols = st.columns(4)
-            cols[0].metric("Distance", f"{response.course.distance_km:.2f} km")
-            cols[1].metric("Dénivelé +", f"{response.course.elevation_gain_m:.0f} m")
-            cols[2].metric("Temps estimé", _fmt_duration(strategy.estimated_time_sec))
-            cols[3].metric("Allure moyenne", _fmt_pace(strategy.average_pace_sec_per_km))
-            if strategy.summary:
-                st.caption(strategy.summary)
-
-            # Sections dévoilées une par une.
-            _render_map(response.course.route)
-            time.sleep(_REVEAL_DELAY)
-            _render_athlete(response.athlete)
-            time.sleep(_REVEAL_DELAY)
-            _render_weather(response.weather)
-            time.sleep(_REVEAL_DELAY)
-            _render_charts(strategy)
-            _render_km_table(strategy)
+        _render_charts(strategy)
+        _render_km_table(strategy)
 else:
     st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer la stratégie ».")

@@ -12,7 +12,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
 from app.adapters.coros_athlete import CorosAthleteProvider
-from app.adapters.gpx_parser import GpxParseError
+from app.adapters.gpx_parser import GpxParseError, parse_gpx
 from app.adapters.llm_openai import OpenAICompatibleStrategyGenerator
 from app.adapters.open_meteo import OpenMeteoWeatherProvider
 from app.adapters.open_topo_data import OpenTopoDataProvider
@@ -23,11 +23,13 @@ from app.db.history import HistoryReader, NullHistoryReader, SqlHistoryReader
 from app.db.read_models import RunDetail, RunStats, RunSummary
 from app.domain.models import (
     AthleteProfile,
+    CourseProfile,
     CourseSummary,
     RaceContext,
     RoutePoint,
     StrategyResponse,
     TrackPoint,
+    WeatherContext,
 )
 from app.domain.ports import (
     AthleteProvider,
@@ -52,6 +54,29 @@ def sample_route(points: list[TrackPoint]) -> list[RoutePoint]:
     if sampled[-1] is not points[-1]:
         sampled = [*sampled, points[-1]]
     return [RoutePoint(lat=p.lat, lon=p.lon) for p in sampled]
+
+
+def _course_summary(course: CourseProfile) -> CourseSummary:
+    return CourseSummary(
+        distance_km=course.distance_km,
+        elevation_gain_m=course.elevation_gain_m,
+        elevation_loss_m=course.elevation_loss_m,
+        start_lat=course.start_lat,
+        start_lon=course.start_lon,
+        segments=course.segments,
+        route=sample_route(course.points),
+    )
+
+
+async def _read_gpx(gpx: UploadFile) -> str:
+    raw = await gpx.read()
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Fichier GPX non décodable (UTF-8 attendu).",
+        ) from exc
 
 
 def get_athlete_provider() -> AthleteProvider:
@@ -122,15 +147,7 @@ async def create_strategy(
     goal: Annotated[str | None, Form(description="Objectif (optionnel).")] = None,
 ) -> StrategyResponse:
     """Pipeline complet : GPX + date/heure → stratégie + contexte (profil, COROS, météo)."""
-    raw = await gpx.read()
-    try:
-        content = raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Fichier GPX non décodable (UTF-8 attendu).",
-        ) from exc
-
+    content = await _read_gpx(gpx)
     race = RaceContext(race_datetime=race_datetime, goal=goal)
     try:
         result = await build_strategy(
@@ -150,18 +167,47 @@ async def create_strategy(
 
     return StrategyResponse(
         strategy=result.strategy,
-        course=CourseSummary(
-            distance_km=result.course.distance_km,
-            elevation_gain_m=result.course.elevation_gain_m,
-            elevation_loss_m=result.course.elevation_loss_m,
-            start_lat=result.course.start_lat,
-            start_lon=result.course.start_lon,
-            segments=result.course.segments,
-            route=sample_route(result.course.points),
-        ),
+        course=_course_summary(result.course),
         athlete=result.athlete,
         weather=result.weather,
     )
+
+
+@router.post(
+    "/profile",
+    response_model=CourseSummary,
+    dependencies=[Depends(require_api_token)],
+)
+async def get_profile(
+    gpx: Annotated[UploadFile, File(description="Fichier GPX du parcours.")],
+    elevation: Annotated[ElevationProvider, Depends(get_elevation_provider)],
+) -> CourseSummary:
+    """Aperçu rapide : GPX → profil (distance, D+, segments, tracé) — sans la stratégie."""
+    content = await _read_gpx(gpx)
+    try:
+        course = parse_gpx(content)
+    except GpxParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    course = await elevation.clean_elevations(course)
+    return _course_summary(course)
+
+
+@router.get(
+    "/weather",
+    response_model=WeatherContext,
+    dependencies=[Depends(require_api_token)],
+)
+async def get_weather_at(
+    lat: Annotated[float, Query(ge=-90, le=90)],
+    lon: Annotated[float, Query(ge=-180, le=180)],
+    race_datetime: Annotated[datetime, Query(description="Date/heure de la course (ISO 8601).")],
+    weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
+) -> WeatherContext:
+    """Conditions au point donné pour la date/heure (dégradation gracieuse)."""
+    return await weather.get_weather(lat, lon, race_datetime)
 
 
 @router.get(

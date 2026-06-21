@@ -108,6 +108,50 @@ def test_race_context_accepts_goal() -> None:
     assert RaceContext(race_datetime=datetime(2026, 9, 1, 9, 0), goal="finir").goal == "finir"
 
 
+def test_profile_returns_course(client: TestClient) -> None:
+    response = client.post(
+        "/profile",
+        headers=_AUTH,
+        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["distance_km"] > 0
+    assert len(body["route"]) >= 1
+    assert "strategy" not in body  # aperçu, pas la stratégie
+
+
+def test_profile_requires_auth(client: TestClient) -> None:
+    response = client.post("/profile", files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")})
+    assert response.status_code == 401
+
+
+def test_profile_rejects_invalid_gpx(client: TestClient) -> None:
+    response = client.post(
+        "/profile",
+        headers=_AUTH,
+        files={"gpx": ("bad.gpx", "pas du gpx", "application/gpx+xml")},
+    )
+    assert response.status_code == 422
+
+
+def test_weather_returns_context(client: TestClient) -> None:
+    response = client.get(
+        "/weather",
+        headers=_AUTH,
+        params={"lat": 43.0, "lon": 6.0, "race_datetime": "2026-09-01T09:00:00"},
+    )
+    assert response.status_code == 200
+    assert "source" in response.json()
+
+
+def test_weather_requires_auth(client: TestClient) -> None:
+    response = client.get(
+        "/weather", params={"lat": 43.0, "lon": 6.0, "race_datetime": "2026-09-01T09:00:00"}
+    )
+    assert response.status_code == 401
+
+
 def test_sample_route_limits_and_keeps_endpoints() -> None:
     from app.api.routes import sample_route
     from app.domain.models import TrackPoint
