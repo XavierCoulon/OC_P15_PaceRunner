@@ -1,7 +1,10 @@
 """Tests de la préparation des données de visualisation (front/viz.py)."""
 
+from datetime import datetime
+
+from app.db.read_models import RunSummary
 from app.domain.models import KmPlan, PaceStrategy
-from viz import km_table_rows, strategy_rows
+from viz import history_rows, km_table_rows, strategy_rows
 
 
 def _strategy() -> PaceStrategy:
@@ -36,3 +39,22 @@ def test_km_table_rows() -> None:
     assert rows[1]["Allure"] == "6:00/km"
     assert rows[1]["Effort"] == "hard"
     assert rows[1]["Pente %"] == 6.0
+
+
+def test_history_rows() -> None:
+    run = RunSummary(
+        id=7,
+        created_at=datetime(2026, 6, 20, 12, 30),
+        distance_km=10.17,
+        race_datetime=datetime(2026, 9, 1, 9, 0),
+        generated_by="baseline",
+        average_pace_sec_per_km=318.0,
+        guardrails_passed=False,
+        deviation_vs_baseline_pct=-11.1,
+        latency_ms=1500.0,
+    )
+    rows = history_rows([run])
+    assert rows[0]["Id"] == 7
+    assert rows[0]["Origine"] == "Repli"
+    assert rows[0]["Allure moy."] == "5:18/km"
+    assert rows[0]["Garde-fous"] == "non"

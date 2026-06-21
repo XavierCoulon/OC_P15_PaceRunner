@@ -4,6 +4,7 @@ Le profil de dénivelé est reconstruit par cumul des pentes par km (`gradient_p
 la réponse `/strategy` ne renvoyant que la stratégie. La courbe d'allure vient des km_plans.
 """
 
+from app.db.read_models import RunSummary
 from app.domain.models import PaceStrategy
 
 Row = dict[str, float | int | str]
@@ -24,6 +25,31 @@ def strategy_rows(strategy: PaceStrategy) -> list[Row]:
                 "pace_label": f"{minutes}:{seconds:02d}",
                 "effort": plan.effort,
                 "gradient_pct": plan.gradient_pct,
+            }
+        )
+    return rows
+
+
+def history_rows(runs: list[RunSummary]) -> list[Row]:
+    """Lignes du tableau d'historique (une par run)."""
+    rows: list[Row] = []
+    for run in runs:
+        pace = run.average_pace_sec_per_km
+        pace_label = "—"
+        if pace is not None:
+            minutes, seconds = divmod(round(pace), 60)
+            pace_label = f"{minutes}:{seconds:02d}/km"
+        rows.append(
+            {
+                "Id": run.id,
+                "Date": run.created_at.strftime("%Y-%m-%d %H:%M"),
+                "Distance (km)": round(run.distance_km, 2),
+                "Origine": "IA" if run.generated_by == "llm" else "Repli",
+                "Allure moy.": pace_label,
+                "Garde-fous": "OK" if run.guardrails_passed else "non",
+                "Écart baseline %": run.deviation_vs_baseline_pct
+                if run.deviation_vs_baseline_pct is not None
+                else 0.0,
             }
         )
     return rows
