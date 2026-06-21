@@ -1,14 +1,18 @@
 """Front Streamlit — page « Génération de stratégie ».
 
-K1 : layout + formulaire. K2 : appel backend (`POST /strategy`), états et validation.
-La restitution riche (graphes, tableau km/km) vient aux tickets K3–K5.
+K1 : layout + formulaire. K2 : appel backend. K3 : profil de dénivelé + courbe d'allure.
+Le tableau km/km (K4) et le bandeau météo (réponse à enrichir) viennent ensuite.
 """
 
 from datetime import date, datetime, time
 
+import altair as alt
+import pandas as pd
 import streamlit as st
 
 from api_client import BackendError, generate_strategy
+from app.domain.models import PaceStrategy
+from viz import strategy_rows
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -21,6 +25,36 @@ def _fmt_duration(seconds: float) -> str:
 def _fmt_pace(seconds_per_km: float) -> str:
     minutes, secs = divmod(round(seconds_per_km), 60)
     return f"{minutes}:{secs:02d} /km"
+
+
+def _render_charts(strategy: PaceStrategy) -> None:
+    df = pd.DataFrame(strategy_rows(strategy))
+
+    st.subheader("Profil de dénivelé")
+    elevation = (
+        alt.Chart(df)
+        .mark_area(opacity=0.4, color="#6c8ebf", line={"color": "#3b5b8c"})
+        .encode(
+            x=alt.X("km:Q", title="Kilomètre"),
+            y=alt.Y("elevation_m:Q", title="Dénivelé cumulé (m)"),
+            tooltip=["km", "elevation_m", alt.Tooltip("gradient_pct", title="pente %")],
+        )
+    )
+    st.altair_chart(elevation, use_container_width=True)
+
+    st.subheader("Allure conseillée par km")
+    pace = (
+        alt.Chart(df)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("km:Q", title="Kilomètre"),
+            # axe inversé : une allure plus rapide (moins de secondes) est plus haute
+            y=alt.Y("pace_sec:Q", title="Allure (s/km)", scale=alt.Scale(reverse=True)),
+            color=alt.Color("effort:N", title="Effort"),
+            tooltip=["km", alt.Tooltip("pace_label", title="allure"), "effort", "gradient_pct"],
+        )
+    )
+    st.altair_chart(pace, use_container_width=True)
 
 
 st.set_page_config(page_title="PaceRunner", page_icon="🏃", layout="wide")
@@ -88,6 +122,8 @@ if submitted:
             cols[2].metric("Allure moyenne", _fmt_pace(strategy.average_pace_sec_per_km))
             if strategy.summary:
                 st.caption(strategy.summary)
-            st.caption("Profil de dénivelé, courbe d'allure et tableau km/km : tickets K3–K5.")
+
+            _render_charts(strategy)
+            st.caption("Tableau km/km (K4) et bandeau météo jour J (réponse à enrichir) à venir.")
 else:
     st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer la stratégie ».")
