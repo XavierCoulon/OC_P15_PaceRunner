@@ -9,6 +9,30 @@ from app.domain.models import PaceStrategy
 
 Row = dict[str, float | int | str]
 
+# Code météo WMO (Open-Meteo) → (emoji, libellé). Plages regroupées.
+_WMO: list[tuple[range, str, str]] = [
+    (range(0, 1), "☀️", "Ciel clair"),
+    (range(1, 3), "⛅", "Éclaircies"),
+    (range(3, 4), "☁️", "Couvert"),
+    (range(45, 49), "🌫️", "Brouillard"),
+    (range(51, 58), "🌦️", "Bruine"),
+    (range(61, 68), "🌧️", "Pluie"),
+    (range(71, 78), "❄️", "Neige"),
+    (range(80, 83), "🌧️", "Averses"),
+    (range(85, 87), "🌨️", "Averses de neige"),
+    (range(95, 100), "⛈️", "Orage"),
+]
+
+
+def weather_summary(code: int | None) -> tuple[str, str]:
+    """Code météo WMO → (emoji, libellé français)."""
+    if code is None:
+        return "🌡️", "Conditions"
+    for codes, emoji, label in _WMO:
+        if code in codes:
+            return emoji, label
+    return "🌡️", "Conditions"
+
 
 def strategy_rows(strategy: PaceStrategy) -> list[Row]:
     """Une ligne par km : dénivelé cumulé, allure, label, effort, pente."""

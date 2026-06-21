@@ -32,6 +32,7 @@ async def test_forecast_tier_returns_conditions() -> None:
                     "temperature_2m": [18.5],
                     "precipitation": [0.2],
                     "wind_speed_10m": [12.0],
+                    "weather_code": [3],
                 },
                 "daily": {
                     "time": [day],
@@ -57,6 +58,7 @@ async def test_forecast_tier_returns_conditions() -> None:
     assert weather.temperature_max_c == 24.0
     assert weather.temperature_min_c == 14.0
     assert weather.air_quality_index == 42.0
+    assert weather.weather_code == 3
 
 
 @respx.mock

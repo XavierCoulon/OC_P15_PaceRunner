@@ -86,6 +86,7 @@ class WeatherContext(_Frozen):
 
     source: WeatherSource | None = None
     horizon_days: int | None = None
+    weather_code: int | None = Field(default=None, description="Code météo WMO (prévision).")
     temperature_c: float | None = None
     temperature_min_c: float | None = None
     temperature_max_c: float | None = None

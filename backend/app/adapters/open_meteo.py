@@ -51,8 +51,13 @@ class OpenMeteoWeatherProvider:
             aqi = None
             if horizon <= _AIR_QUALITY_HORIZON_DAYS:
                 aqi = await self._fetch_air_quality(client, lat, lon, day, hour_key)
+        code = weather.pop("weather_code", None)
         return WeatherContext(
-            source="forecast", horizon_days=horizon, air_quality_index=aqi, **weather
+            source="forecast",
+            horizon_days=horizon,
+            air_quality_index=aqi,
+            weather_code=int(code) if code is not None else None,
+            **weather,
         )
 
     async def _fetch_forecast(
@@ -61,7 +66,7 @@ class OpenMeteoWeatherProvider:
         params: dict[str, float | str] = {
             "latitude": lat,
             "longitude": lon,
-            "hourly": "temperature_2m,precipitation,wind_speed_10m",
+            "hourly": "temperature_2m,precipitation,wind_speed_10m,weather_code",
             "daily": "temperature_2m_max,temperature_2m_min",
             "start_date": day,
             "end_date": day,
@@ -77,6 +82,7 @@ class OpenMeteoWeatherProvider:
             "temperature_c": _at(hourly.get("temperature_2m"), index),
             "precipitation_mm": _at(hourly.get("precipitation"), index),
             "wind_speed_kmh": _at(hourly.get("wind_speed_10m"), index),
+            "weather_code": _at(hourly.get("weather_code"), index),
             "temperature_max_c": _at(daily.get("temperature_2m_max"), 0),
             "temperature_min_c": _at(daily.get("temperature_2m_min"), 0),
         }

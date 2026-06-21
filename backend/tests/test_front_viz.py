@@ -4,7 +4,7 @@ from datetime import datetime
 
 from app.db.read_models import RunSummary
 from app.domain.models import KmPlan, PaceStrategy
-from viz import history_rows, km_table_rows, strategy_rows
+from viz import history_rows, km_table_rows, strategy_rows, weather_summary
 
 
 def _strategy() -> PaceStrategy:
@@ -39,6 +39,15 @@ def test_km_table_rows() -> None:
     assert rows[1]["Allure"] == "6:00/km"
     assert rows[1]["Effort"] == "hard"
     assert rows[1]["Pente %"] == 6.0
+
+
+def test_weather_summary() -> None:
+    assert weather_summary(0) == ("☀️", "Ciel clair")
+    assert weather_summary(2)[1] == "Éclaircies"
+    assert weather_summary(63)[0] == "🌧️"
+    assert weather_summary(95)[1] == "Orage"
+    assert weather_summary(None) == ("🌡️", "Conditions")
+    assert weather_summary(999) == ("🌡️", "Conditions")
 
 
 def test_history_rows() -> None:

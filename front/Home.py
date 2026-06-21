@@ -4,7 +4,9 @@ K1 : layout + formulaire. K2 : appel backend. K3 : profil de dénivelé + courbe
 Le tableau km/km (K4) et le bandeau météo (réponse à enrichir) viennent ensuite.
 """
 
-from datetime import date, datetime, time
+import time
+from datetime import date, datetime
+from datetime import time as dtime
 
 import altair as alt
 import pandas as pd
@@ -13,8 +15,10 @@ import streamlit as st
 
 from api_client import BackendError, generate_strategy
 from app.config import get_settings
-from app.domain.models import PaceStrategy, RoutePoint, WeatherContext
-from viz import km_table_rows, strategy_rows
+from app.domain.models import AthleteProfile, PaceStrategy, RoutePoint, WeatherContext
+from viz import km_table_rows, strategy_rows, weather_summary
+
+_REVEAL_DELAY = 0.35
 
 _WEATHER_SOURCE_LABEL = {
     "forecast": "Prévision",
@@ -64,30 +68,52 @@ def _render_map(route: list[RoutePoint]) -> None:
     st.pydeck_chart(deck)
 
 
-def _render_weather(weather: WeatherContext | None) -> None:
-    if weather is None or weather.source is None:
-        st.info("Conditions jour J indisponibles (hors horizon de prévision).")
+def _render_athlete(athlete: AthleteProfile | None) -> None:
+    if athlete is None:
         return
-    label = _WEATHER_SOURCE_LABEL.get(weather.source, weather.source)
-    st.subheader(f"Conditions jour J — {label}")
+    st.subheader("🏃 Forme du jour (COROS)")
     cols = st.columns(4)
     cols[0].metric(
-        "Température",
-        f"{weather.temperature_c:.0f} °C" if weather.temperature_c is not None else "—",
+        "Allure seuil",
+        _fmt_pace(athlete.threshold_pace_sec_per_km)
+        if athlete.threshold_pace_sec_per_km is not None
+        else "—",
     )
+    cols[1].metric("VO2max", f"{athlete.vo2max:.0f}" if athlete.vo2max is not None else "—")
+    cols[2].metric(
+        "Récupération",
+        f"{athlete.recovery_pct:.0f} %" if athlete.recovery_pct is not None else "—",
+    )
+    cols[3].metric("Poids", f"{athlete.weight_kg:.1f} kg" if athlete.weight_kg is not None else "—")
+    if athlete.recovery_status:
+        st.caption(f"État : {athlete.recovery_status}")
+
+
+def _render_weather(weather: WeatherContext | None) -> None:
+    if weather is None or weather.source is None:
+        st.info("☁️ Conditions jour J indisponibles (hors horizon de prévision).")
+        return
+    source = _WEATHER_SOURCE_LABEL.get(weather.source, weather.source)
+    emoji, label = weather_summary(weather.weather_code)
+    temp = f"{weather.temperature_c:.0f} °C" if weather.temperature_c is not None else "—"
+    st.subheader(f"{emoji} Conditions jour J — {label}, {temp}")
+    st.caption(f"Source : {source}")
+    cols = st.columns(4)
+    cols[0].metric("🌡️ Température", temp)
     cols[1].metric(
-        "Vent", f"{weather.wind_speed_kmh:.0f} km/h" if weather.wind_speed_kmh is not None else "—"
+        "💨 Vent",
+        f"{weather.wind_speed_kmh:.0f} km/h" if weather.wind_speed_kmh is not None else "—",
     )
     cols[2].metric(
-        "Précip.",
+        "🌧️ Précip.",
         f"{weather.precipitation_mm:.1f} mm" if weather.precipitation_mm is not None else "—",
     )
     cols[3].metric(
-        "Qualité air",
+        "🟢 Qualité air",
         f"{weather.air_quality_index:.0f}" if weather.air_quality_index is not None else "—",
     )
     if weather.last_year_temperature_c is not None:
-        st.caption(f"Même date l'an dernier : {weather.last_year_temperature_c:.0f} °C")
+        st.caption(f"📅 Même date l'an dernier : {weather.last_year_temperature_c:.0f} °C")
 
 
 def _render_charts(strategy: PaceStrategy) -> None:
@@ -147,7 +173,7 @@ with st.sidebar:
 
         col_date, col_time = st.columns(2)
         race_date = col_date.date_input("Date de la course", value=date.today())
-        race_time = col_time.time_input("Heure de départ", value=time(9, 0))
+        race_time = col_time.time_input("Heure de départ", value=dtime(9, 0))
 
         goal_mode = st.selectbox(
             "Objectif",
@@ -171,7 +197,7 @@ def _goal_text() -> str:
 if submitted:
     if gpx_file is None:
         st.warning("Merci de fournir un fichier GPX.")
-    elif isinstance(race_date, date) and isinstance(race_time, time):
+    elif isinstance(race_date, date) and isinstance(race_time, dtime):
         race_datetime = datetime.combine(race_date, race_time)
         with st.spinner("Génération de la stratégie… (le modèle peut prendre quelques secondes)"):
             try:
@@ -188,6 +214,20 @@ if submitted:
         if response is not None:
             strategy = response.strategy
             st.session_state["strategy"] = response.model_dump()
+
+            # Révélation progressive : checklist des étapes du pipeline.
+            with st.status("Analyse du parcours…", expanded=True) as status:
+                for step in (
+                    "📍 Parcours GPX analysé",
+                    "🗺️ Tracé géolocalisé",
+                    "🏃 Forme COROS récupérée",
+                    "🌤️ Météo jour J récupérée",
+                    "🧠 Stratégie générée",
+                ):
+                    st.write(step)
+                    time.sleep(_REVEAL_DELAY)
+                status.update(label="Analyse terminée ✅", state="complete", expanded=False)
+
             badge = "🤖 Stratégie IA" if strategy.generated_by == "llm" else "🛡️ Repli déterministe"
             st.success(f"Stratégie générée — **{badge}**")
             if strategy.generated_by != "llm":
@@ -198,15 +238,16 @@ if submitted:
             cols[1].metric("Dénivelé +", f"{response.course.elevation_gain_m:.0f} m")
             cols[2].metric("Temps estimé", _fmt_duration(strategy.estimated_time_sec))
             cols[3].metric("Allure moyenne", _fmt_pace(strategy.average_pace_sec_per_km))
-            if response.athlete and response.athlete.threshold_pace_sec_per_km:
-                st.caption(
-                    f"Allure seuil COROS : {_fmt_pace(response.athlete.threshold_pace_sec_per_km)}"
-                )
             if strategy.summary:
                 st.caption(strategy.summary)
 
+            # Sections dévoilées une par une.
             _render_map(response.course.route)
+            time.sleep(_REVEAL_DELAY)
+            _render_athlete(response.athlete)
+            time.sleep(_REVEAL_DELAY)
             _render_weather(response.weather)
+            time.sleep(_REVEAL_DELAY)
             _render_charts(strategy)
             _render_km_table(strategy)
 else:
