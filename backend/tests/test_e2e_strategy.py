@@ -75,7 +75,7 @@ def _grade_factor(gradient_pct: float) -> float:
     # Même modèle Minetti que la baseline, pour rester dans la tolérance du garde-fou.
     i = gradient_pct / 100.0
     cost = 155.4 * i**5 - 30.4 * i**4 - 43.3 * i**3 + 46.3 * i**2 + 19.5 * i + 3.6
-    return max(cost / 3.6, 0.78)
+    return max(cost / 3.6, 0.90)
 
 
 def _llm_handler(request: httpx.Request) -> httpx.Response:

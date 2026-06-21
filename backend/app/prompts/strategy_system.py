@@ -29,8 +29,8 @@ Rules:
   long races (half, marathon). Then adjust each kilometer from there.
 - The gradient effect is STRONG and NON-LINEAR uphill. From the threshold pace, rough guide:
   +1% ≈ +15 s/km, +3% ≈ +50 s/km, +6% ≈ +110 s/km, +10% ≈ +190 s/km. Climbs slow you down a lot.
-- Downhill helps but MUCH less than uphill hurts: about −10 s/km per −1%, with a floor (never faster
-  than threshold_pace times 0.8).
+- Downhill helps only modestly (braking limits speed): a few seconds per −1%, capped — never faster
+  than threshold_pace times 0.9. Steep descents are NOT much faster than gentle ones.
 - On near-flat terrain (gradient between −1% and +1%), keep paces almost constant, very close to the
   average race pace. A tiny gradient must NOT produce a large pace change.
 - Also adapt mildly to recovery (freshness) and weather (heat, wind, rain).

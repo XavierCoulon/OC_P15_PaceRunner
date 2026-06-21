@@ -22,7 +22,9 @@ _LONG_FACTOR = 1.18  # au-delà du marathon
 # Coût énergétique de la course selon la pente (Minetti et al., 2002, J/kg/m).
 # Le facteur d'allure = coût(pente) / coût(plat) → fortement non-linéaire (cf. G3).
 _FLAT_COST = 3.6
-_DOWNHILL_FLOOR = 0.78  # plafonne le gain en descente (~22 %) : on ne dévale pas indéfiniment
+# Plafonne le gain en descente : Minetti minimise le coût métabolique, mais en course réelle
+# le freinage limite la vitesse → on borne le gain à ~10 % (vs ~22 % pour le Minetti pur).
+_DOWNHILL_FLOOR = 0.90
 
 # Fraîcheur : récupération basse → allure plus prudente.
 _FRESHNESS_MAX_PENALTY = 0.10  # +10 % au pire (récupération nulle)
