@@ -8,10 +8,12 @@ from datetime import date, datetime, time
 
 import altair as alt
 import pandas as pd
+import pydeck as pdk
 import streamlit as st
 
 from api_client import BackendError, generate_strategy
-from app.domain.models import PaceStrategy, WeatherContext
+from app.config import get_settings
+from app.domain.models import PaceStrategy, RoutePoint, WeatherContext
 from viz import km_table_rows, strategy_rows
 
 _WEATHER_SOURCE_LABEL = {
@@ -31,6 +33,35 @@ def _fmt_duration(seconds: float) -> str:
 def _fmt_pace(seconds_per_km: float) -> str:
     minutes, secs = divmod(round(seconds_per_km), 60)
     return f"{minutes}:{secs:02d} /km"
+
+
+def _render_map(route: list[RoutePoint]) -> None:
+    if not route:
+        return
+    st.subheader("Tracé du parcours")
+    coords = pd.DataFrame([{"lat": p.lat, "lon": p.lon} for p in route])
+    token = get_settings().mapbox_token
+    if token is None:
+        st.map(coords, zoom=11)
+        st.caption("Ajoute `MAPBOX_TOKEN` dans `.env` pour un fond relief/satellite.")
+        return
+
+    mid = route[len(route) // 2]
+    layer = pdk.Layer(
+        "PathLayer",
+        data=[{"path": [[p.lon, p.lat] for p in route]}],
+        get_path="path",
+        get_color=[230, 80, 40],
+        width_min_pixels=3,
+    )
+    deck = pdk.Deck(
+        layers=[layer],
+        initial_view_state=pdk.ViewState(latitude=mid.lat, longitude=mid.lon, zoom=12),
+        map_provider="mapbox",
+        map_style="mapbox://styles/mapbox/outdoors-v12",
+        api_keys={"mapbox": token.get_secret_value()},
+    )
+    st.pydeck_chart(deck)
 
 
 def _render_weather(weather: WeatherContext | None) -> None:
@@ -174,6 +205,7 @@ if submitted:
             if strategy.summary:
                 st.caption(strategy.summary)
 
+            _render_map(response.course.route)
             _render_weather(response.weather)
             _render_charts(strategy)
             _render_km_table(strategy)

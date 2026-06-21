@@ -26,6 +26,8 @@ class Settings(BaseSettings):
 
     # Front → backend (le front appelle l'API ; en prod combiné : localhost:8000)
     backend_url: str = "http://localhost:8000"
+    # Carte du tracé (front) : token Mapbox pour le fond relief/satellite (optionnel)
+    mapbox_token: SecretStr | None = None
 
     # Sécurité API (cf. D4) — token Bearer attendu sur les endpoints protégés
     api_token: SecretStr | None = None

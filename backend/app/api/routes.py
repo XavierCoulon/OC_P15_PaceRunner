@@ -25,7 +25,9 @@ from app.domain.models import (
     AthleteProfile,
     CourseSummary,
     RaceContext,
+    RoutePoint,
     StrategyResponse,
+    TrackPoint,
 )
 from app.domain.ports import (
     AthleteProvider,
@@ -37,6 +39,19 @@ from app.domain.ports import (
 from app.services.strategy_service import build_strategy
 
 router = APIRouter()
+
+_MAX_ROUTE_POINTS = 300
+
+
+def sample_route(points: list[TrackPoint]) -> list[RoutePoint]:
+    """Échantillonne le tracé pour la carte (≤ 300 points, départ et arrivée conservés)."""
+    if not points:
+        return []
+    step = max(1, -(-len(points) // _MAX_ROUTE_POINTS))  # division plafond
+    sampled = points[::step]
+    if sampled[-1] is not points[-1]:
+        sampled = [*sampled, points[-1]]
+    return [RoutePoint(lat=p.lat, lon=p.lon) for p in sampled]
 
 
 def get_athlete_provider() -> AthleteProvider:
@@ -142,6 +157,7 @@ async def create_strategy(
             start_lat=result.course.start_lat,
             start_lon=result.course.start_lon,
             segments=result.course.segments,
+            route=sample_route(result.course.points),
         ),
         athlete=result.athlete,
         weather=result.weather,

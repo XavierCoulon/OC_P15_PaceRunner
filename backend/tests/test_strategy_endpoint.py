@@ -106,3 +106,15 @@ def test_health_remains_public(client: TestClient) -> None:
 
 def test_race_context_accepts_goal() -> None:
     assert RaceContext(race_datetime=datetime(2026, 9, 1, 9, 0), goal="finir").goal == "finir"
+
+
+def test_sample_route_limits_and_keeps_endpoints() -> None:
+    from app.api.routes import sample_route
+    from app.domain.models import TrackPoint
+
+    points = [TrackPoint(lat=43.0 + i * 0.0001, lon=6.0, elevation_m=10.0) for i in range(1000)]
+    route = sample_route(points)
+    assert len(route) <= 301
+    assert route[0].lat == points[0].lat
+    assert route[-1].lat == points[-1].lat
+    assert sample_route([]) == []

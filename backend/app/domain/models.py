@@ -127,8 +127,15 @@ class PaceStrategy(_Frozen):
     generated_by: str = Field(description="Origine de la stratégie : « llm » ou « baseline ».")
 
 
+class RoutePoint(_Frozen):
+    """Coordonnée du tracé (échantillonné) pour l'affichage cartographique."""
+
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
+
 class CourseSummary(_Frozen):
-    """Résumé du parcours pour la réponse API (sans la liste complète des points)."""
+    """Résumé du parcours pour la réponse API (tracé échantillonné, sans tous les points)."""
 
     distance_km: float = Field(gt=0)
     elevation_gain_m: float = Field(ge=0)
@@ -136,6 +143,7 @@ class CourseSummary(_Frozen):
     start_lat: float
     start_lon: float
     segments: list[ElevationSegment] = Field(default_factory=list)
+    route: list[RoutePoint] = Field(default_factory=list)
 
 
 class StrategyResponse(_Frozen):
