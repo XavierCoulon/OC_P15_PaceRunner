@@ -19,7 +19,7 @@ from app.domain.models import (
     WeatherContext,
 )
 from app.domain.ports import StrategyGenerator
-from app.services.baseline_strategy import build_baseline_strategy
+from app.services.baseline_strategy import build_baseline_strategy, effort_from_gradient
 from app.services.strategy_guardrails import check_strategy
 from app.services.strategy_quality import StrategyQuality, compute_quality, log_quality
 
@@ -64,16 +64,21 @@ async def generate_strategy(
 
 
 def recompute_totals(strategy: PaceStrategy, course: CourseProfile) -> PaceStrategy:
-    """Recalcule temps estimé et allure moyenne depuis les allures km (ne fait pas confiance
-    à l'arithmétique du LLM)."""
+    """Normalise la sortie LLM : effort recalculé depuis la pente (côté serveur), puis temps estimé
+    et allure moyenne recalculés depuis les allures km (l'arithmétique LLM n'est pas fiable)."""
     distances = [segment.distance_km for segment in course.segments]
+    km_plans = [
+        plan.model_copy(update={"effort": effort_from_gradient(plan.gradient_pct)})
+        for plan in strategy.km_plans
+    ]
     total_time = sum(
         plan.target_pace_sec_per_km * dist
-        for plan, dist in zip(strategy.km_plans, distances, strict=True)
+        for plan, dist in zip(km_plans, distances, strict=True)
     )
     average_pace = total_time / course.distance_km
     return strategy.model_copy(
         update={
+            "km_plans": km_plans,
             "estimated_time_sec": round(total_time, 1),
             "average_pace_sec_per_km": round(average_pace, 1),
         }

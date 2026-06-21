@@ -9,6 +9,7 @@ liste des violations (vide = conforme). La décision de fallback est prise par l
 from statistics import mean
 
 from app.domain.models import AthleteProfile, CourseProfile, PaceStrategy
+from app.services.baseline_strategy import build_baseline_strategy
 
 # Bornes absolues d'allure (s/km) : ~2:00 (élite) à ~20:00 (marche).
 _ABS_MIN_PACE = 120.0
@@ -21,6 +22,9 @@ _THRESHOLD_MAX_FACTOR = 2.5
 # Seuils de pente (%) pour distinguer montée / descente.
 _UPHILL_PCT = 1.0
 _DOWNHILL_PCT = -1.0
+
+# Écart max par km vs la baseline grade-adjusted (sinon le LLM ignore la pente).
+_MAX_KM_DEVIATION = 0.35
 
 
 def check_strategy(
@@ -51,5 +55,14 @@ def check_strategy(
     ]
     if uphill and downhill and mean(uphill) <= mean(downhill):
         reasons.append("montée pas plus lente que descente (effort/pente incohérent)")
+
+    # Cohérence avec la baseline grade-adjusted : le LLM ne doit pas « lisser » la pente.
+    if len(strategy.km_plans) == len(course.segments):
+        baseline = build_baseline_strategy(course, athlete)
+        for llm_km, base_km in zip(strategy.km_plans, baseline.km_plans, strict=True):
+            ref = base_km.target_pace_sec_per_km
+            if abs(llm_km.target_pace_sec_per_km - ref) / ref > _MAX_KM_DEVIATION:
+                reasons.append("allure trop éloignée de la baseline grade-adjusted (pente ignorée)")
+                break
 
     return reasons

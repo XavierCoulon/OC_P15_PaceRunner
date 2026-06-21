@@ -19,13 +19,17 @@ _DISTANCE_FACTORS: tuple[tuple[float, float], ...] = (
 )
 _LONG_FACTOR = 1.18  # au-delà du marathon
 
-# Ajustement à la pente : montée ralentit, descente accélère (avec plancher).
-_UPHILL_PER_PCT = 0.03
-_DOWNHILL_PER_PCT = 0.02
-_DOWNHILL_FLOOR = 0.90  # gain max de 10 % en descente
+# Coût énergétique de la course selon la pente (Minetti et al., 2002, J/kg/m).
+# Le facteur d'allure = coût(pente) / coût(plat) → fortement non-linéaire (cf. G3).
+_FLAT_COST = 3.6
+_DOWNHILL_FLOOR = 0.78  # plafonne le gain en descente (~22 %) : on ne dévale pas indéfiniment
 
 # Fraîcheur : récupération basse → allure plus prudente.
 _FRESHNESS_MAX_PENALTY = 0.10  # +10 % au pire (récupération nulle)
+
+# Seuils de pente (%) pour le label d'effort.
+_HARD_PCT = 3.0
+_EASY_PCT = -3.0
 
 
 def _race_pace_factor(distance_km: float) -> float:
@@ -36,9 +40,10 @@ def _race_pace_factor(distance_km: float) -> float:
 
 
 def _grade_factor(gradient_pct: float) -> float:
-    if gradient_pct >= 0:
-        return 1.0 + _UPHILL_PER_PCT * gradient_pct
-    return max(1.0 + _DOWNHILL_PER_PCT * gradient_pct, _DOWNHILL_FLOOR)
+    """Facteur d'allure dû à la pente (grade-adjusted pace, modèle de Minetti)."""
+    i = gradient_pct / 100.0
+    cost = 155.4 * i**5 - 30.4 * i**4 - 43.3 * i**3 + 46.3 * i**2 + 19.5 * i + _FLAT_COST
+    return max(cost / _FLAT_COST, _DOWNHILL_FLOOR)
 
 
 def _freshness_factor(recovery_pct: float | None) -> float:
@@ -47,10 +52,11 @@ def _freshness_factor(recovery_pct: float | None) -> float:
     return 1.0 + _FRESHNESS_MAX_PENALTY * (100.0 - recovery_pct) / 100.0
 
 
-def _effort(grade_factor: float) -> str:
-    if grade_factor >= 1.08:
+def effort_from_gradient(gradient_pct: float) -> str:
+    """Label d'effort déduit de la pente (réutilisé pour recalculer l'effort côté serveur)."""
+    if gradient_pct >= _HARD_PCT:
         return "hard"
-    if grade_factor <= 0.97:
+    if gradient_pct <= _EASY_PCT:
         return "easy"
     return "steady"
 
@@ -82,7 +88,7 @@ def build_baseline_strategy(course: CourseProfile, athlete: AthleteProfile | Non
             KmPlan(
                 km_index=segment.km_index,
                 target_pace_sec_per_km=round(pace, 1),
-                effort=_effort(grade_factor),
+                effort=effort_from_gradient(segment.gradient_pct),
                 gradient_pct=segment.gradient_pct,
             )
         )

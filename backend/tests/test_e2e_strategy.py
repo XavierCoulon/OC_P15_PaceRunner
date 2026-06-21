@@ -71,6 +71,13 @@ def _air_response() -> httpx.Response:
     return httpx.Response(200, json={"hourly": {"time": [hour_key], "european_aqi": [40.0]}})
 
 
+def _grade_factor(gradient_pct: float) -> float:
+    # Même modèle Minetti que la baseline, pour rester dans la tolérance du garde-fou.
+    i = gradient_pct / 100.0
+    cost = 155.4 * i**5 - 30.4 * i**4 - 43.3 * i**3 + 46.3 * i**2 + 19.5 * i + 3.6
+    return max(cost / 3.6, 0.78)
+
+
 def _llm_handler(request: httpx.Request) -> httpx.Response:
     body = json.loads(request.content)
     user = next(m["content"] for m in reversed(body["messages"]) if '"course"' in m["content"])
@@ -79,7 +86,7 @@ def _llm_handler(request: httpx.Request) -> httpx.Response:
     km_plans = [
         {
             "km_index": s["km_index"],
-            "target_pace_sec_per_km": 300 + s["gradient_pct"] * 4,  # montée plus lente
+            "target_pace_sec_per_km": round(340 * _grade_factor(s["gradient_pct"]), 1),
             "effort": "steady",
             "gradient_pct": s["gradient_pct"],
         }

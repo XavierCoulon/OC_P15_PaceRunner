@@ -71,3 +71,10 @@ def test_km_count_mismatch() -> None:
     course = _course([0.0, 0.0, 0.0])
     strategy = _strategy([(300.0, 0.0)])
     assert any("nombre de km" in r for r in check_strategy(strategy, course, _ATHLETE))
+
+
+def test_pace_too_far_from_grade_adjusted_baseline() -> None:
+    # Grosse montée (+10%) mais allure « plate » → ignore la pente → écart à la baseline.
+    course = _course([10.0])
+    strategy = _strategy([(300.0, 10.0)])
+    assert any("baseline" in r for r in check_strategy(strategy, course, _ATHLETE))

@@ -27,9 +27,10 @@ Rules:
 - ANCHOR every pace to the runner's threshold pace (threshold_pace_sec_per_km). A sensible race pace
   stays close to the threshold pace: slightly faster for short races (5-10 km), slightly slower for
   long races (half, marathon). Then adjust each kilometer from there.
-- The gradient effect is SMALL: about +3 to +4 s/km for each +1% of incline, and about −2 s/km for
-  each −1% of decline. NEVER make a pace faster than (threshold_pace − 30) or slower than
-  (threshold_pace × 2).
+- The gradient effect is STRONG and NON-LINEAR uphill. From the threshold pace, rough guide:
+  +1% ≈ +15 s/km, +3% ≈ +50 s/km, +6% ≈ +110 s/km, +10% ≈ +190 s/km. Climbs slow you down a lot.
+- Downhill helps but MUCH less than uphill hurts: about −10 s/km per −1%, with a floor (never faster
+  than threshold_pace times 0.8).
 - On near-flat terrain (gradient between −1% and +1%), keep paces almost constant, very close to the
   average race pace. A tiny gradient must NOT produce a large pace change.
 - Also adapt mildly to recovery (freshness) and weather (heat, wind, rain).

@@ -85,6 +85,8 @@ async def test_valid_llm_strategy_is_kept_and_totals_recomputed() -> None:
     assert outcome.strategy.estimated_time_sec == 630.0  # 300*1 + 330*1, recalculé (pas 9999)
     assert outcome.strategy.average_pace_sec_per_km == 315.0
     assert outcome.quality.llm_guardrails_passed is True
+    # Effort recalculé serveur depuis la pente : km2 (+5%) → hard.
+    assert outcome.strategy.km_plans[1].effort == "hard"
 
 
 async def test_aberrant_strategy_falls_back_to_baseline() -> None:
