@@ -47,7 +47,6 @@ class Settings(BaseSettings):
     open_meteo_forecast_url: str = "https://api.open-meteo.com/v1/forecast"
     open_meteo_air_quality_url: str = "https://air-quality-api.open-meteo.com/v1/air-quality"
     open_meteo_archive_url: str = "https://archive-api.open-meteo.com/v1/archive"
-    climatology_years: int = 5
     http_timeout_seconds: float = 10.0
 
     # LLM — API OpenAI-compatible (Ollama local par défaut ; HF par config, cf. ADR-4)

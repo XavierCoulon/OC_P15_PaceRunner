@@ -2,9 +2,9 @@
 
 Route selon l'horizon de la course (cf. docs/02-audit-data.md) :
 - ≤ 16 j → **prévision** (Forecast API) + qualité de l'air (≤ ~5 j) ;
-- 16 j–7 mois → tendance saisonnière (à venir) ;
-- au-delà → climatologie ERA5 (à venir).
+- au-delà → **relevés de l'an dernier** (ERA5) : la météo réelle n'est pas encore disponible.
 
+Dans les deux cas, on joint l'**historique des 3 dernières années** à la même date (ERA5).
 Dégradation gracieuse : toute panne renvoie un `WeatherContext` partiel (au pire vide).
 """
 
@@ -14,10 +14,11 @@ from typing import Any
 import httpx
 
 from app.config import Settings, get_settings
-from app.domain.models import WeatherContext
+from app.domain.models import WeatherContext, YearlyWeather
 
 _FORECAST_HORIZON_DAYS = 16
 _AIR_QUALITY_HORIZON_DAYS = 5
+_HISTORY_YEARS = 3
 
 
 class OpenMeteoWeatherProvider:
@@ -28,21 +29,21 @@ class OpenMeteoWeatherProvider:
         self._forecast_url = config.open_meteo_forecast_url
         self._air_quality_url = config.open_meteo_air_quality_url
         self._archive_url = config.open_meteo_archive_url
-        self._climatology_years = config.climatology_years
         self._timeout = config.http_timeout_seconds
 
     async def get_weather(self, lat: float, lon: float, when: datetime) -> WeatherContext:
         horizon = (when.date() - date.today()).days
         try:
+            history = await self._fetch_history(lat, lon, when)
             if 0 <= horizon <= _FORECAST_HORIZON_DAYS:
-                return await self._forecast(lat, lon, when, horizon)
-            # Tendance saisonnière (16 j–7 mois) : tier à venir. Au-delà : climatologie.
-            return await self._climatology(lat, lon, when, horizon)
+                return await self._forecast(lat, lon, when, horizon, history)
+            # Course trop lointaine : la prévision n'existe pas encore → on montre l'an dernier.
+            return _from_last_year(horizon, history)
         except (httpx.HTTPError, KeyError, ValueError, TypeError):
             return WeatherContext(horizon_days=horizon)
 
     async def _forecast(
-        self, lat: float, lon: float, when: datetime, horizon: int
+        self, lat: float, lon: float, when: datetime, horizon: int, history: list[YearlyWeather]
     ) -> WeatherContext:
         day = when.date().isoformat()
         hour_key = when.strftime("%Y-%m-%dT%H:00")
@@ -57,6 +58,7 @@ class OpenMeteoWeatherProvider:
             horizon_days=horizon,
             air_quality_index=aqi,
             weather_code=int(code) if code is not None else None,
+            history=history,
             **weather,
         )
 
@@ -87,18 +89,11 @@ class OpenMeteoWeatherProvider:
             "temperature_min_c": _at(daily.get("temperature_2m_min"), 0),
         }
 
-    async def _climatology(
-        self, lat: float, lon: float, when: datetime, horizon: int
-    ) -> WeatherContext:
-        """Moyenne la même date calendaire sur les N dernières années (ERA5)."""
-        means: list[float] = []
-        mins: list[float] = []
-        maxs: list[float] = []
-        precs: list[float] = []
-        winds: list[float] = []
-        last_year_temp: float | None = None
+    async def _fetch_history(self, lat: float, lon: float, when: datetime) -> list[YearlyWeather]:
+        """Relevés des 3 dernières années à la même date calendaire (ERA5), an dernier en tête."""
+        years: list[YearlyWeather] = []
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            for offset in range(1, self._climatology_years + 1):
+            for offset in range(1, _HISTORY_YEARS + 1):
                 try:
                     day = date(when.year - offset, when.month, when.day)
                 except ValueError:
@@ -106,25 +101,15 @@ class OpenMeteoWeatherProvider:
                 daily = await self._fetch_archive_day(client, lat, lon, day.isoformat())
                 if daily is None:
                     continue
-                _append(means, daily["mean"])
-                _append(mins, daily["min"])
-                _append(maxs, daily["max"])
-                _append(precs, daily["precip"])
-                _append(winds, daily["wind"])
-                if offset == 1:
-                    last_year_temp = daily["mean"]
-        if not means:
-            return WeatherContext(horizon_days=horizon)
-        return WeatherContext(
-            source="climatology",
-            horizon_days=horizon,
-            temperature_c=_avg(means),
-            temperature_min_c=_avg(mins),
-            temperature_max_c=_avg(maxs),
-            precipitation_mm=_avg(precs),
-            wind_speed_kmh=_avg(winds),
-            last_year_temperature_c=last_year_temp,
-        )
+                years.append(
+                    YearlyWeather(
+                        year=day.year,
+                        temperature_c=daily["mean"],
+                        precipitation_mm=daily["precip"],
+                        wind_speed_kmh=daily["wind"],
+                    )
+                )
+        return years
 
     async def _fetch_archive_day(
         self, client: httpx.AsyncClient, lat: float, lon: float, day: str
@@ -169,13 +154,19 @@ class OpenMeteoWeatherProvider:
         return _at(hourly.get("european_aqi"), _hour_index(hourly.get("time", []), hour_key))
 
 
-def _append(values: list[float], value: float | None) -> None:
-    if value is not None:
-        values.append(value)
-
-
-def _avg(values: list[float]) -> float | None:
-    return round(sum(values) / len(values), 1) if values else None
+def _from_last_year(horizon: int, history: list[YearlyWeather]) -> WeatherContext:
+    """Météo de repli quand la prévision n'existe pas encore : relevés de l'an dernier."""
+    if not history:
+        return WeatherContext(horizon_days=horizon, history=history)
+    last = history[0]  # année la plus récente (offset 1)
+    return WeatherContext(
+        source="last_year",
+        horizon_days=horizon,
+        temperature_c=last.temperature_c,
+        precipitation_mm=last.precipitation_mm,
+        wind_speed_kmh=last.wind_speed_kmh,
+        history=history,
+    )
 
 
 def _hour_index(times: list[str], hour_key: str) -> int | None:

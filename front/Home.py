@@ -25,8 +25,7 @@ from viz import km_table_rows, strategy_rows, weather_summary
 
 _WEATHER_SOURCE_LABEL = {
     "forecast": "Prévision",
-    "seasonal": "Tendance saisonnière",
-    "climatology": "Climatologie (normales)",
+    "last_year": "Relevés de l'an dernier",
 }
 
 
@@ -94,15 +93,26 @@ def _render_athlete(athlete: AthleteProfile | None) -> None:
 
 def _render_weather(weather: WeatherContext | None) -> None:
     if weather is None or weather.source is None:
-        st.info("☁️ Conditions jour J indisponibles (hors horizon de prévision).")
+        _render_weather_history(weather)
+        st.info("☁️ Conditions jour J indisponibles.")
         return
-    source = _WEATHER_SOURCE_LABEL.get(weather.source, weather.source)
-    emoji, label = weather_summary(weather.weather_code)
-    temp = f"{weather.temperature_c:.0f} °C" if weather.temperature_c is not None else "—"
-    st.subheader(f"{emoji} Conditions jour J — {label}, {temp}")
-    st.caption(f"Source : {source}")
+
+    if weather.source == "last_year":
+        st.subheader("⏳ Conditions jour J — pas encore disponibles")
+        st.warning(
+            "La course est trop lointaine pour une prévision. Voici les **relevés de "
+            "l'an dernier** à cette date (indicatif)."
+        )
+    else:
+        emoji, label = weather_summary(weather.weather_code)
+        temp = f"{weather.temperature_c:.0f} °C" if weather.temperature_c is not None else "—"
+        st.subheader(f"{emoji} Conditions jour J — {label}, {temp}")
+
     cols = st.columns(4)
-    cols[0].metric("🌡️ Température", temp)
+    cols[0].metric(
+        "🌡️ Température",
+        f"{weather.temperature_c:.0f} °C" if weather.temperature_c is not None else "—",
+    )
     cols[1].metric(
         "💨 Vent",
         f"{weather.wind_speed_kmh:.0f} km/h" if weather.wind_speed_kmh is not None else "—",
@@ -115,8 +125,23 @@ def _render_weather(weather: WeatherContext | None) -> None:
         "🟢 Qualité air",
         f"{weather.air_quality_index:.0f}" if weather.air_quality_index is not None else "—",
     )
-    if weather.last_year_temperature_c is not None:
-        st.caption(f"📅 Même date l'an dernier : {weather.last_year_temperature_c:.0f} °C")
+    _render_weather_history(weather)
+
+
+def _render_weather_history(weather: WeatherContext | None) -> None:
+    if weather is None or not weather.history:
+        return
+    rows = [
+        {
+            "Année": y.year,
+            "Température": f"{y.temperature_c:.0f} °C" if y.temperature_c is not None else "—",
+            "Vent": f"{y.wind_speed_kmh:.0f} km/h" if y.wind_speed_kmh is not None else "—",
+            "Précip.": f"{y.precipitation_mm:.1f} mm" if y.precipitation_mm is not None else "—",
+        }
+        for y in weather.history
+    ]
+    st.caption("📅 Mêmes date et lieu, années précédentes :")
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def _render_charts(strategy: PaceStrategy) -> None:
@@ -175,7 +200,9 @@ with st.sidebar:
         gpx_file = st.file_uploader("Fichier GPX du parcours", type=["gpx"])
 
         col_date, col_time = st.columns(2)
-        race_date = col_date.date_input("Date de la course", value=date.today())
+        race_date = col_date.date_input(
+            "Date de la course", value=date.today(), min_value=date.today()
+        )
         race_time = col_time.time_input("Heure de départ", value=dtime(9, 0))
 
         submitted = st.form_submit_button("Générer la stratégie", type="primary")
