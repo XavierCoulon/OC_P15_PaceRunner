@@ -64,6 +64,17 @@ def test_estimated_time_matches_paces() -> None:
     assert strategy.estimated_time_sec == round(expected, 1)
 
 
+def test_heat_slows_the_baseline() -> None:
+    from app.domain.models import WeatherContext
+
+    course = _course([0.0, 0.0])
+    cool = WeatherContext(temperature_c=12.0)
+    hot = WeatherContext(temperature_c=33.0, wind_speed_kmh=30.0, precipitation_mm=5.0)
+    fresh = build_baseline_strategy(course, _athlete(), cool)
+    tough = build_baseline_strategy(course, _athlete(), hot)
+    assert tough.average_pace_sec_per_km > fresh.average_pace_sec_per_km
+
+
 def test_without_athlete_uses_fallback_pace() -> None:
     strategy = build_baseline_strategy(_course([0.0, 1.0]), None)
     assert strategy.generated_by == "baseline"

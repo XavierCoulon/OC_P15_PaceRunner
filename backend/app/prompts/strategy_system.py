@@ -23,9 +23,10 @@ Return ONLY a single JSON object — no prose, no markdown — with EXACTLY this
 
 Rules:
 - If `baseline_pace_sec_per_km` is provided, it is a REALISTIC deterministic reference already
-  adjusted for the terrain (very steep climbs may be near walking pace). START from it: for each km
-  stay CLOSE to the baseline pace (within ~20%) and only fine-tune for weather, freshness and goal.
-  Never propose a pace far from the baseline (e.g. do not "run" a +20% wall the baseline walks).
+  adjusted for the terrain, the weather and the runner's freshness (very steep climbs may be near
+  walking pace). START from it: for each km stay CLOSE to the baseline pace (within ~20%) and only
+  fine-tune for the goal. Never propose a pace far from the baseline (e.g. do not "run" a +20% wall
+  the baseline walks).
 - Output exactly one km_plan per kilometer provided, keeping the given km_index and gradient_pct.
 - Paces are in seconds per kilometer. Run slower (higher pace) uphill, faster (lower pace) downhill.
 - ANCHOR every pace to the runner's threshold pace (threshold_pace_sec_per_km). A sensible race pace

@@ -42,7 +42,7 @@ async def generate_strategy(
 ) -> GenerationOutcome:
     """Renvoie la stratégie LLM si elle passe les garde-fous, sinon le fallback baseline."""
     start = perf_counter()
-    baseline = build_baseline_strategy(course, athlete)
+    baseline = build_baseline_strategy(course, athlete, weather)
     llm_guardrails_passed = False
 
     try:

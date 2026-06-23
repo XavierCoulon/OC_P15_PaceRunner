@@ -2,10 +2,17 @@
 
 Sert à la fois de **référence** de comparaison et de **fallback** quand le LLM échoue
 (cf. ADR-1). Principe : partir de l'allure seuil COROS, l'ajuster à la distance de course,
-à la **pente** de chaque kilomètre (*grade-adjusted pace*) et à la **fraîcheur** du jour.
+à la **pente** de chaque kilomètre (*grade-adjusted pace*), à la **fraîcheur** du jour et
+aux **conditions météo** (chaleur, vent, pluie).
 """
 
-from app.domain.models import AthleteProfile, CourseProfile, KmPlan, PaceStrategy
+from app.domain.models import (
+    AthleteProfile,
+    CourseProfile,
+    KmPlan,
+    PaceStrategy,
+    WeatherContext,
+)
 
 # Allure de repli si l'allure seuil COROS est indisponible (6:00/km).
 _DEFAULT_THRESHOLD_PACE = 360.0
@@ -29,9 +36,32 @@ _DOWNHILL_FLOOR = 0.90
 # Fraîcheur : récupération basse → allure plus prudente.
 _FRESHNESS_MAX_PENALTY = 0.10  # +10 % au pire (récupération nulle)
 
+# Météo : ralentissement réaliste (chaleur dominante, vent, pluie).
+_HEAT_THRESHOLD_C = 20.0  # au-delà, la chaleur pénalise
+_HEAT_PER_DEG = 0.006  # +0,6 %/°C au-dessus du seuil
+_WIND_THRESHOLD_KMH = 25.0  # vent fort à partir de ~25 km/h
+_WIND_PER_KMH = 0.002  # +0,2 %/km/h au-dessus du seuil
+_RAIN_THRESHOLD_MM = 1.0
+_RAIN_PENALTY = 0.01  # +1 % sous la pluie (prudence)
+_MAX_WEATHER_PENALTY = 0.20  # plafond cumulé +20 %
+
 # Seuils de pente (%) pour le label d'effort.
 _HARD_PCT = 3.0
 _EASY_PCT = -3.0
+
+
+def _weather_factor(weather: WeatherContext | None) -> float:
+    """Facteur de ralentissement dû aux conditions (1.0 = pas d'effet)."""
+    if weather is None:
+        return 1.0
+    penalty = 0.0
+    if weather.temperature_c is not None and weather.temperature_c > _HEAT_THRESHOLD_C:
+        penalty += (weather.temperature_c - _HEAT_THRESHOLD_C) * _HEAT_PER_DEG
+    if weather.wind_speed_kmh is not None and weather.wind_speed_kmh > _WIND_THRESHOLD_KMH:
+        penalty += (weather.wind_speed_kmh - _WIND_THRESHOLD_KMH) * _WIND_PER_KMH
+    if weather.precipitation_mm is not None and weather.precipitation_mm > _RAIN_THRESHOLD_MM:
+        penalty += _RAIN_PENALTY
+    return 1.0 + min(penalty, _MAX_WEATHER_PENALTY)
 
 
 def _race_pace_factor(distance_km: float) -> float:
@@ -68,8 +98,12 @@ def _format_pace(pace_sec: float) -> str:
     return f"{minutes}:{seconds:02d}"
 
 
-def build_baseline_strategy(course: CourseProfile, athlete: AthleteProfile | None) -> PaceStrategy:
-    """Construit une `PaceStrategy` déterministe à partir du profil et de la forme athlète."""
+def build_baseline_strategy(
+    course: CourseProfile,
+    athlete: AthleteProfile | None,
+    weather: WeatherContext | None = None,
+) -> PaceStrategy:
+    """Construit une `PaceStrategy` déterministe (profil + forme athlète + météo)."""
     threshold = _DEFAULT_THRESHOLD_PACE
     recovery: float | None = None
     if athlete is not None:
@@ -79,12 +113,13 @@ def build_baseline_strategy(course: CourseProfile, athlete: AthleteProfile | Non
 
     base_pace = threshold * _race_pace_factor(course.distance_km)
     freshness = _freshness_factor(recovery)
+    weather_factor = _weather_factor(weather)
 
     km_plans: list[KmPlan] = []
     total_time = 0.0
     for segment in course.segments:
         grade_factor = _grade_factor(segment.gradient_pct)
-        pace = base_pace * freshness * grade_factor
+        pace = base_pace * freshness * weather_factor * grade_factor
         total_time += pace * segment.distance_km
         km_plans.append(
             KmPlan(
@@ -96,7 +131,7 @@ def build_baseline_strategy(course: CourseProfile, athlete: AthleteProfile | Non
         )
 
     if not km_plans:  # profil sans segmentation : un plan unique sur la distance
-        pace = base_pace * freshness
+        pace = base_pace * freshness * weather_factor
         total_time = pace * course.distance_km
         km_plans.append(
             KmPlan(
@@ -106,9 +141,12 @@ def build_baseline_strategy(course: CourseProfile, athlete: AthleteProfile | Non
 
     average_pace = total_time / course.distance_km
     recovery_note = f", récup {recovery:.0f}%" if recovery is not None else ""
+    weather_note = (
+        f", météo +{(weather_factor - 1) * 100:.0f}%" if weather_factor > 1.0 else ""
+    )
     summary = (
         f"Baseline déterministe — allure seuil {_format_pace(threshold)}/km "
-        f"ajustée à la distance, à la pente{recovery_note}."
+        f"ajustée à la distance, à la pente{recovery_note}{weather_note}."
     )
     return PaceStrategy(
         distance_km=course.distance_km,
