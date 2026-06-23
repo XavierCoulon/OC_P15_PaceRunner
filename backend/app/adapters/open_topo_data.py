@@ -40,7 +40,14 @@ class OpenTopoDataProvider:
             )
             for p, e in zip(profile.points, elevations, strict=True)
         ]
-        return build_course_profile(cleaned)
+        # On reconstruit sur les altitudes terrain, mais on conserve le D+/D- brut
+        # d'origine (GPX) comme référence de comparaison côté front.
+        return build_course_profile(
+            cleaned,
+            elevation_source="open_topo_data",
+            raw_gain=profile.raw_elevation_gain_m,
+            raw_loss=profile.raw_elevation_loss_m,
+        )
 
     async def _fetch_elevations(self, points: list[TrackPoint]) -> list[float | None]:
         elevations: list[float | None] = []
