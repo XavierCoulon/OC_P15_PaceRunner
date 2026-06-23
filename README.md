@@ -25,6 +25,30 @@ Front Streamlit ─▶ profil dénivelé, allure conseillée, tableau km/km, his
 Python · FastAPI · Pydantic · Streamlit · `huggingface_hub` (Llama 3.1 8B) · SQLModel/Neon Postgres ·
 client MCP COROS maison (httpx) · `uv` · Docker · GitHub Actions · Hugging Face Spaces.
 
+## Choisir le moteur LLM (local ou HF)
+
+La génération passe par un **adapter OpenAI-compatible unique** ; on bascule par 3 variables
+d'environnement (cf. `.env`), sans changer le code.
+
+**Local — Ollama** (défaut, gratuit, hors-ligne) :
+```env
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_MODEL=llama3.1:8b
+LLM_API_KEY=
+```
+Prérequis : `ollama serve` + `ollama pull llama3.1:8b` (le `make dev` lance Ollama si besoin).
+
+**HF Inference** (le modèle est servi par Hugging Face) :
+```env
+LLM_BASE_URL=https://router.huggingface.co/v1
+LLM_MODEL=meta-llama/Llama-3.1-8B-Instruct
+LLM_API_KEY=hf_xxxxxxxxxxxxxxxxxxxxxxxx
+```
+Prérequis : compte HF, accès au modèle *gated* `meta-llama/Llama-3.1-8B-Instruct` accepté, et un
+**token fine-grained** avec la permission *« Make calls to Inference Providers »*
+(https://huggingface.co/settings/tokens). On peut cibler un fournisseur/politique via un suffixe de
+modèle (ex. `meta-llama/Llama-3.1-8B-Instruct:cheapest`).
+
 ## Suivi de projet
 
 Voir le [board GitHub Projects](https://github.com/users/XavierCoulon/projects/6) et les livrables dans [`docs/`](docs/).
