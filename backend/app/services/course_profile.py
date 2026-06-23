@@ -11,8 +11,28 @@ from app.domain.models import CourseProfile, ElevationSegment, TrackPoint
 
 _SEGMENT_METERS = 1000.0
 _EARTH_RADIUS_M = 6_371_000.0
+# Seuil d'hystérésis anti-bruit pour le dénivelé (m). Les altitudes (baromètre GPX ou
+# DEM) oscillent de ±1 m point à point ; sans seuil, ces micro-variations gonflent le
+# D+/D- cumulé. On ne comptabilise une montée/descente qu'au-delà de ce seuil
+# (méthode standard type Strava/Garmin).
+_ELEVATION_NOISE_THRESHOLD_M = 5.0
 
 FloatArray = NDArray[np.float64]
+
+
+def _denoise_elevations(eles: FloatArray, threshold: float) -> FloatArray:
+    """Filtre les altitudes par hystérésis : la référence ne bouge qu'au-delà du seuil.
+
+    Renvoie une série « en marches d'escalier » : le bruit sous le seuil est ignoré, mais
+    les vraies montées/descentes (et les points de départ/arrivée) sont préservés.
+    """
+    filtered = eles.copy()
+    ref = eles[0]
+    for i in range(1, len(eles)):
+        if abs(eles[i] - ref) >= threshold:
+            ref = eles[i]
+        filtered[i] = ref
+    return filtered
 
 
 def _pairwise_distances_m(lats: FloatArray, lons: FloatArray) -> FloatArray:
@@ -36,7 +56,10 @@ def build_course_profile(points: list[TrackPoint]) -> CourseProfile:
 
     lats = np.array([p.lat for p in points], dtype=float)
     lons = np.array([p.lon for p in points], dtype=float)
-    eles = np.array([p.elevation_m for p in points], dtype=float)
+    raw_eles = np.array([p.elevation_m for p in points], dtype=float)
+    # Filtrage anti-bruit : le dénivelé est calculé sur les altitudes lissées par
+    # hystérésis (les pentes nettes par km restent quasi identiques).
+    eles = _denoise_elevations(raw_eles, _ELEVATION_NOISE_THRESHOLD_M)
 
     pair_dist = _pairwise_distances_m(lats, lons)
     cum_dist = np.concatenate([[0.0], np.cumsum(pair_dist)])

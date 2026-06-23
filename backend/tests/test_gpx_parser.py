@@ -50,6 +50,19 @@ def test_hilly_course_has_positive_gain() -> None:
     assert all(seg.gradient_pct > 0 for seg in profile.segments)
 
 
+def _noisy_flat_course() -> str:
+    # Altitude constante bruitée de ±2 m (sous le seuil d'hystérésis) : D+ réel ~0.
+    eles = [1000.0 + (2.0 if i % 2 else -2.0) for i in range(30)]
+    return _gpx([(45.0 + i * 0.001, 6.0, e) for i, e in enumerate(eles)])
+
+
+def test_barometric_noise_does_not_inflate_gain() -> None:
+    # Sans filtrage, le bruit ±2 m cumulerait ~55 m de D+ fictif ; le seuil l'annule.
+    profile = parse_gpx(_noisy_flat_course())
+    assert profile.elevation_gain_m == 0.0
+    assert profile.elevation_loss_m == 0.0
+
+
 def test_corrupt_gpx_raises() -> None:
     with pytest.raises(GpxParseError):
         parse_gpx("ceci n'est pas un fichier GPX")
