@@ -201,7 +201,10 @@ with st.sidebar:
 
         col_date, col_time = st.columns(2)
         race_date = col_date.date_input(
-            "Date de la course", value=date.today(), min_value=date.today()
+            "Date de la course",
+            value=date.today(),
+            min_value=date.today(),
+            format="DD/MM/YYYY",
         )
         race_time = col_time.time_input("Heure de départ", value=dtime(9, 0))
 
