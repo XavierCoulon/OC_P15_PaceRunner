@@ -141,9 +141,7 @@ def build_baseline_strategy(
 
     average_pace = total_time / course.distance_km
     recovery_note = f", récup {recovery:.0f}%" if recovery is not None else ""
-    weather_note = (
-        f", météo +{(weather_factor - 1) * 100:.0f}%" if weather_factor > 1.0 else ""
-    )
+    weather_note = f", météo +{(weather_factor - 1) * 100:.0f}%" if weather_factor > 1.0 else ""
     summary = (
         f"Baseline déterministe — allure seuil {_format_pace(threshold)}/km "
         f"ajustée à la distance, à la pente{recovery_note}{weather_note}."
