@@ -107,7 +107,7 @@ def _llm_handler(request: httpx.Request) -> httpx.Response:
 async def _run() -> PipelineResult:
     return await build_strategy(
         _gpx(),
-        RaceContext(race_datetime=_when(), goal="finir"),
+        RaceContext(race_datetime=_when()),
         elevation=OpenTopoDataProvider(),
         athlete_provider=CorosAthleteProvider(),
         weather=OpenMeteoWeatherProvider(),

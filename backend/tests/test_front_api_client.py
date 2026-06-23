@@ -47,7 +47,6 @@ def _call() -> StrategyResponse:
         gpx_bytes=b"<gpx/>",
         filename="course.gpx",
         race_datetime_iso="2026-09-01T09:00:00",
-        goal="x",
     )
 
 

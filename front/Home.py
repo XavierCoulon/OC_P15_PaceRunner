@@ -178,23 +178,7 @@ with st.sidebar:
         race_date = col_date.date_input("Date de la course", value=date.today())
         race_time = col_time.time_input("Heure de départ", value=dtime(9, 0))
 
-        goal_mode = st.selectbox(
-            "Objectif",
-            options=["Laisser l'IA décider", "Allure cible", "Temps visé"],
-        )
-        goal_detail = ""
-        if goal_mode == "Allure cible":
-            goal_detail = st.text_input("Allure cible (min/km)", placeholder="ex. 4:50")
-        elif goal_mode == "Temps visé":
-            goal_detail = st.text_input("Temps visé (h:min:s)", placeholder="ex. 1:45:00")
-
         submitted = st.form_submit_button("Générer la stratégie", type="primary")
-
-
-def _goal_text() -> str:
-    if goal_mode == "Laisser l'IA décider" or not goal_detail:
-        return "Laisser l'IA décider"
-    return f"{goal_mode} : {goal_detail}"
 
 
 if submitted:
@@ -243,7 +227,6 @@ if submitted:
                     gpx_bytes=gpx_bytes,
                     filename=filename,
                     race_datetime_iso=race_iso,
-                    goal=_goal_text(),
                 )
         except BackendError as exc:
             st.error(str(exc))

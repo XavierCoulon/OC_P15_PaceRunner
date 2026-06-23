@@ -60,10 +60,6 @@ class RaceContext(_Frozen):
     """Contexte de la course saisi par le coureur (alimente la météo jour J)."""
 
     race_datetime: datetime = Field(description="Date et heure prévues de la course.")
-    goal: str | None = Field(
-        default=None,
-        description="Objectif libre (ex. « finir », allure cible, temps visé).",
-    )
 
 
 class AthleteProfile(_Frozen):

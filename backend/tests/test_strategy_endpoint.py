@@ -14,7 +14,7 @@ from app.api.routes import (
     get_weather_provider,
 )
 from app.config import get_settings
-from app.domain.models import CourseProfile, PaceStrategy, RaceContext, WeatherContext
+from app.domain.models import CourseProfile, PaceStrategy, WeatherContext
 from app.main import app
 
 _TOKEN = "secret-token"
@@ -75,7 +75,7 @@ def test_strategy_returns_pace_strategy(client: TestClient) -> None:
         "/strategy",
         headers=_AUTH,
         files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
-        data={"race_datetime": "2026-09-01T09:00:00", "goal": "finir"},
+        data={"race_datetime": "2026-09-01T09:00:00"},
     )
     assert response.status_code == 200
     body = response.json()
@@ -102,10 +102,6 @@ def test_strategy_rejects_invalid_gpx(client: TestClient) -> None:
 
 def test_health_remains_public(client: TestClient) -> None:
     assert client.get("/health").status_code == 200
-
-
-def test_race_context_accepts_goal() -> None:
-    assert RaceContext(race_datetime=datetime(2026, 9, 1, 9, 0), goal="finir").goal == "finir"
 
 
 def test_profile_returns_course(client: TestClient) -> None:

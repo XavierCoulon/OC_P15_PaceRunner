@@ -22,13 +22,13 @@ class BackendError(Exception):
 
 
 def generate_strategy(
-    *, gpx_bytes: bytes, filename: str, race_datetime_iso: str, goal: str
+    *, gpx_bytes: bytes, filename: str, race_datetime_iso: str
 ) -> StrategyResponse:
     settings = get_settings()
     token = settings.api_token.get_secret_value() if settings.api_token else ""
     url = f"{settings.backend_url}/strategy"
     files = {"gpx": (filename, gpx_bytes, "application/gpx+xml")}
-    data = {"race_datetime": race_datetime_iso, "goal": goal}
+    data = {"race_datetime": race_datetime_iso}
     headers = {"Authorization": f"Bearer {token}"}
 
     try:

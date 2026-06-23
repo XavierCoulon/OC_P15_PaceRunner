@@ -119,7 +119,7 @@ def _build_user_message(
                 for s in course.segments
             ],
         },
-        "race": {"datetime": race.race_datetime.isoformat(), "goal": race.goal},
+        "race": {"datetime": race.race_datetime.isoformat()},
         "athlete": athlete.model_dump() if athlete is not None else None,
         "weather": weather.model_dump() if weather is not None else None,
         "surface": surface.model_dump() if surface is not None else None,

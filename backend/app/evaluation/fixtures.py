@@ -7,7 +7,7 @@ from datetime import datetime
 from app.domain.models import AthleteProfile, CourseProfile, ElevationSegment, RaceContext
 
 _ATHLETE = AthleteProfile(threshold_pace_sec_per_km=292.0, recovery_pct=90.0, weight_kg=71.0)
-_RACE = RaceContext(race_datetime=datetime(2026, 9, 1, 9, 0), goal="finir au mieux")
+_RACE = RaceContext(race_datetime=datetime(2026, 9, 1, 9, 0))
 
 
 @dataclass(frozen=True)

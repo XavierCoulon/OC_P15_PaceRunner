@@ -144,11 +144,10 @@ async def create_strategy(
     weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
     generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
     repository: Annotated[PredictionRepository, Depends(get_prediction_repository)],
-    goal: Annotated[str | None, Form(description="Objectif (optionnel).")] = None,
 ) -> StrategyResponse:
     """Pipeline complet : GPX + date/heure → stratégie + contexte (profil, COROS, météo)."""
     content = await _read_gpx(gpx)
-    race = RaceContext(race_datetime=race_datetime, goal=goal)
+    race = RaceContext(race_datetime=race_datetime)
     try:
         result = await build_strategy(
             content,

@@ -89,4 +89,4 @@ def test_pace_strategy_valid() -> None:
 def test_models_are_frozen() -> None:
     race = RaceContext(race_datetime=datetime(2026, 6, 18, 9, 0))
     with pytest.raises(ValidationError):
-        race.goal = "marathon"
+        race.race_datetime = datetime(2027, 1, 1, 9, 0)
