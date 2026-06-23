@@ -20,7 +20,13 @@ from api_client import (
     generate_strategy,
 )
 from app.config import get_settings
-from app.domain.models import AthleteProfile, PaceStrategy, RoutePoint, WeatherContext
+from app.domain.models import (
+    AthleteProfile,
+    CourseSummary,
+    PaceStrategy,
+    RoutePoint,
+    WeatherContext,
+)
 from viz import km_table_rows, strategy_rows, weather_summary
 
 _WEATHER_SOURCE_LABEL = {
@@ -39,6 +45,19 @@ def _fmt_duration(seconds: float) -> str:
 def _fmt_pace(seconds_per_km: float) -> str:
     minutes, secs = divmod(round(seconds_per_km), 60)
     return f"{minutes}:{secs:02d} /km"
+
+
+def _render_elevation_note(course: CourseSummary) -> None:
+    """Indique l'ajustement du dénivelé (D+ brut → retenu) et la source d'altitude."""
+    terrain = course.elevation_source == "open_topo_data"
+    src = "altitudes terrain" if terrain else "altitudes GPX, service terrain indisponible"
+    raw, final = course.raw_elevation_gain_m, course.elevation_gain_m
+    if abs(raw - final) >= 1:
+        st.caption(f"🗻 D+ ajusté {raw:.0f} → {final:.0f} m ({src}, bruit filtré).")
+    elif terrain:
+        st.caption("🗻 Altitudes terrain (Open Topo Data).")
+    else:
+        st.caption("ℹ️ Altitudes GPX brutes (service terrain indisponible).")
 
 
 def _render_map(route: list[RoutePoint]) -> None:
@@ -230,6 +249,7 @@ if submitted:
         cols = st.columns(2)
         cols[0].metric("Distance", f"{profile.distance_km:.2f} km")
         cols[1].metric("Dénivelé +", f"{profile.elevation_gain_m:.0f} m")
+        _render_elevation_note(profile)
         _render_map(profile.route)
 
         # 2) Forme COROS.
