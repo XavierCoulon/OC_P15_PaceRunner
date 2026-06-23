@@ -21,6 +21,7 @@ from app.services.strategy_service import PipelineResult, build_strategy
 _OTD = "https://api.opentopodata.org/v1"
 _FORECAST = "https://api.open-meteo.com/v1/forecast"
 _AIR = "https://air-quality-api.open-meteo.com/v1/air-quality"
+_ARCHIVE = "https://archive-api.open-meteo.com/v1/archive"
 _CHAT = "http://localhost:11434/v1/chat/completions"
 
 _POINTS = 20
@@ -69,6 +70,21 @@ def _forecast_response() -> httpx.Response:
 def _air_response() -> httpx.Response:
     hour_key = _when().strftime("%Y-%m-%dT%H:00")
     return httpx.Response(200, json={"hourly": {"time": [hour_key], "european_aqi": [40.0]}})
+
+
+def _archive_response() -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "daily": {
+                "temperature_2m_mean": [15.0],
+                "temperature_2m_max": [20.0],
+                "temperature_2m_min": [10.0],
+                "precipitation_sum": [2.0],
+                "wind_speed_10m_max": [18.0],
+            }
+        },
+    )
 
 
 def _grade_factor(gradient_pct: float) -> float:
@@ -120,6 +136,7 @@ async def test_pipeline_end_to_end_with_real_adapters() -> None:
     respx.get(url__startswith=_OTD).mock(side_effect=_otd_handler)
     respx.get(url__startswith=_FORECAST).mock(return_value=_forecast_response())
     respx.get(url__startswith=_AIR).mock(return_value=_air_response())
+    respx.get(url__startswith=_ARCHIVE).mock(return_value=_archive_response())
     respx.post(_CHAT).mock(side_effect=_llm_handler)
 
     result = await _run()
@@ -138,6 +155,7 @@ async def test_pipeline_falls_back_to_baseline_when_llm_fails() -> None:
     respx.get(url__startswith=_OTD).mock(side_effect=_otd_handler)
     respx.get(url__startswith=_FORECAST).mock(return_value=_forecast_response())
     respx.get(url__startswith=_AIR).mock(return_value=_air_response())
+    respx.get(url__startswith=_ARCHIVE).mock(return_value=_archive_response())
     respx.post(_CHAT).mock(
         return_value=httpx.Response(
             200, json={"choices": [{"message": {"content": "pas du json"}}]}

@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-WeatherSource = Literal["forecast", "seasonal", "climatology"]
+WeatherSource = Literal["forecast", "last_year"]
 
 
 class _Frozen(BaseModel):
@@ -73,11 +73,21 @@ class AthleteProfile(_Frozen):
     weight_kg: float | None = Field(default=None, gt=0, description="Poids (grade-adjusted pace).")
 
 
+class YearlyWeather(_Frozen):
+    """Relevés météo d'une année passée à une date donnée (ERA5)."""
+
+    year: int
+    temperature_c: float | None = None
+    precipitation_mm: float | None = None
+    wind_speed_kmh: float | None = None
+
+
 class WeatherContext(_Frozen):
     """Conditions au point de départ pour la date/heure de course (optionnel).
 
-    Selon l'horizon, `source` indique l'origine : prévision (≤16 j), tendance saisonnière
-    (≤7 mois) ou climatologie (au-delà). `horizon_days` = nombre de jours jusqu'à la course.
+    Selon l'horizon, `source` vaut `forecast` (prévision réelle, ≤16 j) ou `last_year`
+    (relevés de l'an dernier, course encore trop lointaine). `history` donne les relevés des
+    dernières années à la même date. `horizon_days` = nombre de jours jusqu'à la course.
     """
 
     source: WeatherSource | None = None
@@ -89,8 +99,8 @@ class WeatherContext(_Frozen):
     wind_speed_kmh: float | None = Field(default=None, ge=0)
     precipitation_mm: float | None = Field(default=None, ge=0)
     air_quality_index: float | None = Field(default=None, ge=0)
-    last_year_temperature_c: float | None = Field(
-        default=None, description="Température à la même date l'an dernier (repère)."
+    history: list[YearlyWeather] = Field(
+        default_factory=list, description="Relevés des dernières années à la même date."
     )
 
 
