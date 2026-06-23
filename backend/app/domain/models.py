@@ -41,12 +41,25 @@ class ElevationSegment(_Frozen):
     gradient_pct: float = Field(description="Pente moyenne du tronçon, en %.")
 
 
+ElevationSource = Literal["gpx", "open_topo_data"]
+
+
 class CourseProfile(_Frozen):
     """Profil de parcours dérivé du fichier GPX (après nettoyage des altitudes)."""
 
     distance_km: float = Field(gt=0)
-    elevation_gain_m: float = Field(ge=0, description="Dénivelé positif total (D+).")
-    elevation_loss_m: float = Field(ge=0, description="Dénivelé négatif total (D-).")
+    elevation_gain_m: float = Field(ge=0, description="Dénivelé positif total retenu (D+).")
+    elevation_loss_m: float = Field(ge=0, description="Dénivelé négatif total retenu (D-).")
+    elevation_source: ElevationSource = Field(
+        default="gpx",
+        description="Origine des altitudes retenues : terrain (open_topo_data) ou GPX brut.",
+    )
+    raw_elevation_gain_m: float = Field(
+        default=0.0, ge=0, description="D+ brut (somme naïve des altitudes GPX, avant correction)."
+    )
+    raw_elevation_loss_m: float = Field(
+        default=0.0, ge=0, description="D- brut (somme naïve des altitudes GPX, avant correction)."
+    )
     start_lat: float = Field(ge=-90, le=90)
     start_lon: float = Field(ge=-180, le=180)
     segments: list[ElevationSegment] = Field(default_factory=list)
@@ -137,6 +150,9 @@ class CourseSummary(_Frozen):
     distance_km: float = Field(gt=0)
     elevation_gain_m: float = Field(ge=0)
     elevation_loss_m: float = Field(ge=0)
+    elevation_source: ElevationSource = "gpx"
+    raw_elevation_gain_m: float = Field(default=0.0, ge=0)
+    raw_elevation_loss_m: float = Field(default=0.0, ge=0)
     start_lat: float
     start_lon: float
     segments: list[ElevationSegment] = Field(default_factory=list)

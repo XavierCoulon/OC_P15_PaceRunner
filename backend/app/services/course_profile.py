@@ -7,7 +7,7 @@ distance (haversine), D+/D-, segmentation par kilomètre et pente moyenne.
 import numpy as np
 from numpy.typing import NDArray
 
-from app.domain.models import CourseProfile, ElevationSegment, TrackPoint
+from app.domain.models import CourseProfile, ElevationSegment, ElevationSource, TrackPoint
 
 _SEGMENT_METERS = 1000.0
 _EARTH_RADIUS_M = 6_371_000.0
@@ -46,8 +46,18 @@ def _pairwise_distances_m(lats: FloatArray, lons: FloatArray) -> FloatArray:
     return distances
 
 
-def build_course_profile(points: list[TrackPoint]) -> CourseProfile:
+def build_course_profile(
+    points: list[TrackPoint],
+    *,
+    elevation_source: ElevationSource = "gpx",
+    raw_gain: float | None = None,
+    raw_loss: float | None = None,
+) -> CourseProfile:
     """Agrège des points de tracé en profil de parcours.
+
+    `raw_gain`/`raw_loss` permettent de **préserver** le D+/D- brut d'origine (GPX) lors
+    d'une reconstruction sur altitudes corrigées (Open Topo Data) ; sinon ils sont calculés
+    en somme naïve sur les altitudes fournies (avant filtrage anti-bruit).
 
     Lève `ValueError` si moins de deux points ou si la distance totale est nulle.
     """
@@ -57,6 +67,10 @@ def build_course_profile(points: list[TrackPoint]) -> CourseProfile:
     lats = np.array([p.lat for p in points], dtype=float)
     lons = np.array([p.lon for p in points], dtype=float)
     raw_eles = np.array([p.elevation_m for p in points], dtype=float)
+    # D+/D- brut = somme naïve (avant filtrage), pour montrer l'ampleur de la correction.
+    naive_delta = np.diff(raw_eles)
+    naive_gain = float(naive_delta[naive_delta > 0].sum())
+    naive_loss = float(-naive_delta[naive_delta < 0].sum())
     # Filtrage anti-bruit : le dénivelé est calculé sur les altitudes lissées par
     # hystérésis (les pentes nettes par km restent quasi identiques).
     eles = _denoise_elevations(raw_eles, _ELEVATION_NOISE_THRESHOLD_M)
@@ -97,6 +111,9 @@ def build_course_profile(points: list[TrackPoint]) -> CourseProfile:
         distance_km=round(total_distance / 1000, 3),
         elevation_gain_m=round(total_gain, 1),
         elevation_loss_m=round(total_loss, 1),
+        elevation_source=elevation_source,
+        raw_elevation_gain_m=round(naive_gain if raw_gain is None else raw_gain, 1),
+        raw_elevation_loss_m=round(naive_loss if raw_loss is None else raw_loss, 1),
         start_lat=float(lats[0]),
         start_lon=float(lons[0]),
         segments=segments,
