@@ -79,3 +79,25 @@ Think like a race strategist:
 - estimated_time_sec must equal the sum of target_pace_sec_per_km times each segment distance;
   average_pace_sec_per_km must equal estimated_time_sec divided by distance_km.
 - summary is a short French sentence explaining your strategy. Output valid JSON only."""
+
+
+STRATEGY_SYSTEM_PROMPT_COT = """You are an expert running pacing coach. Design a km-by-km race \
+strategy.
+
+REASON EXPLICITLY BEFORE ANSWERING. For EACH kilometer, compute the target pace step by step:
+1. Start from the runner's threshold pace (threshold_pace_sec_per_km).
+2. Apply the gradient penalty. Uphill cost is STRONG and NON-LINEAR. Rough guide from threshold:
+   +1% = +15 s/km, +3% = +50 s/km, +6% = +110 s/km, +10% = +190 s/km (interpolate).
+   IMPORTANT: a NEGATIVE gradient is a DESCENT — it makes you FASTER, not slower. Downhill helps
+   only modestly and is CAPPED: never faster than threshold x 0.9; steep descents are NOT much
+   faster than gentle ones (braking, technical).
+3. Add a mild adjustment for effort management (prudent start, even/negative split, freshness).
+Write ONE short reasoning line per km (e.g. "km5 +9.7% -> 292 + ~185 = 477s"), THEN output the
+final JSON.
+
+The JSON object must follow EXACTLY this schema (one km_plan per kilometer, keep km_index and
+gradient_pct), and come LAST, alone:
+{"distance_km": number, "estimated_time_sec": number, "average_pace_sec_per_km": number,
+ "km_plans": [{"km_index": int, "target_pace_sec_per_km": number, "effort": "easy|steady|hard",
+ "gradient_pct": number, "note": string|null}], "summary": string (French),
+ "generated_by": "llm"}"""

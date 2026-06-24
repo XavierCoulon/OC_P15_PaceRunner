@@ -209,14 +209,15 @@ def _render_km_table(strategy: PaceStrategy) -> None:
 
 
 def _render_comparison(comp: StrategyComparison) -> None:
-    st.subheader("⚖️ Comparaison : baseline vs modèle local vs modèle HF")
+    st.subheader("⚖️ Comparaison : baseline vs modèles × prompts")
 
     # (titre, stratégie | None, erreur | None) — baseline = référence déterministe.
     entries: list[tuple[str, PaceStrategy | None, str | None]] = [
         ("🛡️ Baseline déterministe", comp.baseline, None),
-        (f"💻 {comp.local.label} · {comp.local.model}", comp.local.strategy, comp.local.error),
-        (f"☁️ {comp.hf.label} · {comp.hf.model}", comp.hf.strategy, comp.hf.error),
     ]
+    for v in comp.variants:
+        icon = "🧠" if v.mode == "cot" else "💻"
+        entries.append((f"{icon} {v.label}", v.strategy, v.error))
 
     cols = st.columns(len(entries))
     for col, (title, strat, err) in zip(cols, entries, strict=True):
@@ -227,7 +228,10 @@ def _render_comparison(comp: StrategyComparison) -> None:
             col.metric("Temps estimé", _fmt_duration(strat.estimated_time_sec))
             col.metric("Allure moyenne", _fmt_pace(strat.average_pace_sec_per_km))
 
-    st.caption("⚠️ Modèles en mode **autonome brut** : aucun garde-fou, aucun repli.")
+    st.caption(
+        "⚠️ Variantes en mode **brut** (aucun garde-fou, aucun repli). "
+        "« autonome » = one-shot ; « CoT » = raisonnement pente imposé."
+    )
 
     # Courbes d'allure superposées (forme longue → gère des longueurs différentes).
     rows = [
@@ -291,7 +295,9 @@ with st.sidebar:
 
         submitted = st.form_submit_button("Générer la stratégie", type="primary")
         compared = st.form_submit_button("⚖️ Comparer les modèles")
-        st.caption("Comparer = baseline + modèle local + modèle HF (2 appels LLM, plus long).")
+        st.caption(
+            "Comparer = baseline + local (autonome) + local (CoT) + HF (CoT) — 3 appels LLM, long."
+        )
 
 
 if submitted:
@@ -370,7 +376,7 @@ elif compared:
         race_iso = datetime.combine(race_date, race_time).isoformat()
 
         try:
-            with st.spinner("⚖️ Baseline + modèle local + modèle HF (2 appels LLM)…"):
+            with st.spinner("⚖️ Baseline + 3 variantes LLM (local autonome/CoT, HF CoT)…"):
                 comp = compare_strategies(
                     gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
                 )

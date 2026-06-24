@@ -14,6 +14,7 @@ from app.adapters.gpx_parser import parse_gpx
 from app.domain.models import (
     AthleteProfile,
     CourseProfile,
+    GenerationMode,
     PaceStrategy,
     RaceContext,
     SurfaceContext,
@@ -30,7 +31,7 @@ from app.domain.ports import (
 from app.services.baseline_strategy import build_baseline_strategy
 from app.services.strategy_generation import (
     GenerationOutcome,
-    generate_autonomous,
+    generate_raw,
     generate_strategy,
 )
 
@@ -50,19 +51,21 @@ class PipelineResult:
 
 @dataclass(frozen=True)
 class Engine:
-    """Un moteur LLM à comparer (libellé + modèle + générateur)."""
+    """Une variante à comparer : libellé + modèle + générateur + mode de prompt."""
 
     label: str
     model: str
     generator: StrategyGenerator
+    mode: GenerationMode
 
 
 @dataclass(frozen=True)
 class EngineResult:
-    """Stratégie autonome brute d'un moteur (ou l'erreur rencontrée)."""
+    """Stratégie brute d'une variante (ou l'erreur rencontrée)."""
 
     label: str
     model: str
+    mode: GenerationMode
     strategy: PaceStrategy | None
     error: str | None
 
@@ -144,13 +147,19 @@ async def build_comparison(
         strategy: PaceStrategy | None = None
         error: str | None = None
         try:
-            strategy = await generate_autonomous(
-                engine.generator, course, race, athlete, weather_ctx, surface_ctx
+            strategy = await generate_raw(
+                engine.generator, course, race, athlete, weather_ctx, surface_ctx, engine.mode
             )
-        except Exception as exc:  # mode brut : pas de repli, on remonte l'échec du moteur
+        except Exception as exc:  # mode brut : pas de repli, on remonte l'échec de la variante
             error = f"{type(exc).__name__}: {exc}"
         results.append(
-            EngineResult(label=engine.label, model=engine.model, strategy=strategy, error=error)
+            EngineResult(
+                label=engine.label,
+                model=engine.model,
+                mode=engine.mode,
+                strategy=strategy,
+                error=error,
+            )
         )
 
     return ComparisonResult(

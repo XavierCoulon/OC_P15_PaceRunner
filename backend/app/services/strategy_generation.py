@@ -13,6 +13,7 @@ from time import perf_counter
 from app.domain.models import (
     AthleteProfile,
     CourseProfile,
+    GenerationMode,
     PaceStrategy,
     RaceContext,
     SurfaceContext,
@@ -63,23 +64,22 @@ async def generate_strategy(
     return GenerationOutcome(strategy=strategy, quality=quality)
 
 
-async def generate_autonomous(
+async def generate_raw(
     generator: StrategyGenerator,
     course: CourseProfile,
     race: RaceContext,
     athlete: AthleteProfile | None,
     weather: WeatherContext | None,
     surface: SurfaceContext | None,
+    mode: GenerationMode,
 ) -> PaceStrategy:
-    """Stratégie LLM **autonome et brute** : pas de baseline, **aucun garde-fou ni repli**.
+    """Stratégie LLM **brute** (mode autonomous/cot) : **aucun garde-fou ni repli**.
 
-    Sert à mesurer le modèle seul (cf. #74). On recalcule seulement les totaux (l'arithmétique
-    LLM n'est pas fiable) sans toucher aux allures. Toute panne/sortie inexploitable se propage.
+    Sert à comparer modèles et prompts (cf. #74). On recalcule seulement les totaux
+    (l'arithmétique LLM n'est pas fiable) sans toucher aux allures. Toute panne se propage.
     """
-    raw = await generator.generate(
-        course, race, athlete, weather, surface, baseline=None, autonomous=True
-    )
-    strategy = raw.model_copy(update={"generated_by": "llm_autonomous"})
+    raw = await generator.generate(course, race, athlete, weather, surface, mode=mode)
+    strategy = raw.model_copy(update={"generated_by": f"llm_{mode}"})
     if len(strategy.km_plans) == len(course.segments):
         strategy = _recompute_totals_only(strategy, course)
     return strategy

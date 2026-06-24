@@ -11,6 +11,7 @@ from typing import Protocol, runtime_checkable
 from app.domain.models import (
     AthleteProfile,
     CourseProfile,
+    GenerationMode,
     PaceStrategy,
     RaceContext,
     SurfaceContext,
@@ -58,7 +59,7 @@ class StrategyGenerator(Protocol):
         weather: WeatherContext | None,
         surface: SurfaceContext | None,
         baseline: PaceStrategy | None = None,
-        autonomous: bool = False,
+        mode: GenerationMode = "anchored",
     ) -> PaceStrategy: ...
 
 

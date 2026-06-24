@@ -202,11 +202,16 @@ async def compare_strategies(
     local_generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
     hf_generator: Annotated[StrategyGenerator, Depends(get_hf_strategy_generator)],
 ) -> StrategyComparison:
-    """Compare la baseline au modèle local et au modèle HF (génération autonome brute, #74)."""
+    """Compare la baseline à 3 variantes moteur × prompt (génération brute, #74).
+
+    Variantes : modèle local en autonome, modèle local en CoT, modèle HF en CoT.
+    """
     settings = get_settings()
+    local, hf = settings.llm_model, settings.compare_hf_model
     engines = [
-        Engine(label="Modèle local", model=settings.llm_model, generator=local_generator),
-        Engine(label="Modèle HF", model=settings.compare_hf_model, generator=hf_generator),
+        Engine(f"{local} · autonome", local, local_generator, "autonomous"),
+        Engine(f"{local} · CoT", local, local_generator, "cot"),
+        Engine(f"{hf} · CoT", hf, hf_generator, "cot"),
     ]
     content = await _read_gpx(gpx)
     race = RaceContext(race_datetime=race_datetime)
@@ -225,16 +230,17 @@ async def compare_strategies(
             detail=str(exc),
         ) from exc
 
-    local, hf = result.engines
     return StrategyComparison(
         course=_course_summary(result.course),
         athlete=result.athlete,
         weather=result.weather,
         baseline=result.baseline,
-        local=ComparedStrategy(
-            label=local.label, model=local.model, strategy=local.strategy, error=local.error
-        ),
-        hf=ComparedStrategy(label=hf.label, model=hf.model, strategy=hf.strategy, error=hf.error),
+        variants=[
+            ComparedStrategy(
+                label=e.label, model=e.model, mode=e.mode, strategy=e.strategy, error=e.error
+            )
+            for e in result.engines
+        ],
     )
 
 

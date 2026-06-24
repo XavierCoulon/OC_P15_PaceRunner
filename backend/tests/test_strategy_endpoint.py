@@ -68,7 +68,7 @@ class _ValidGenerator:
         weather: WeatherContext | None,
         surface: SurfaceContext | None,
         baseline: PaceStrategy | None = None,
-        autonomous: bool = False,
+        mode: str = "anchored",
     ) -> PaceStrategy:
         plans = [
             KmPlan(
@@ -84,7 +84,7 @@ class _ValidGenerator:
             estimated_time_sec=1.0,
             average_pace_sec_per_km=1.0,
             km_plans=plans,
-            summary="auto" if autonomous else "ancrée",
+            summary=f"variante {mode}",
             generated_by="llm",
         )
 
@@ -172,7 +172,7 @@ def test_profile_rejects_invalid_gpx(client: TestClient) -> None:
     assert response.status_code == 422
 
 
-def test_compare_returns_baseline_local_and_hf(client: TestClient) -> None:
+def test_compare_returns_baseline_and_variants(client: TestClient) -> None:
     app.dependency_overrides[get_strategy_generator] = _ValidGenerator
     app.dependency_overrides[get_hf_strategy_generator] = _ValidGenerator
     response = client.post(
@@ -184,16 +184,17 @@ def test_compare_returns_baseline_local_and_hf(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["baseline"]["generated_by"] == "baseline"
-    # Deux moteurs autonomes bruts, alignés sur le parcours.
-    for key in ("local", "hf"):
-        col = body[key]
-        assert col["error"] is None
-        assert col["strategy"]["generated_by"] == "llm_autonomous"
-        assert len(col["strategy"]["km_plans"]) == len(body["course"]["segments"])
+    # 3 variantes : local autonome, local CoT, HF CoT.
+    variants = body["variants"]
+    assert [v["mode"] for v in variants] == ["autonomous", "cot", "cot"]
+    for v in variants:
+        assert v["error"] is None
+        assert v["strategy"]["generated_by"] == f"llm_{v['mode']}"
+        assert len(v["strategy"]["km_plans"]) == len(body["course"]["segments"])
 
 
-def test_compare_reports_engine_failure(client: TestClient) -> None:
-    # Moteurs en échec → chaque colonne porte une erreur, baseline toujours présente.
+def test_compare_reports_variant_failure(client: TestClient) -> None:
+    # Variantes en échec → chacune porte une erreur, baseline toujours présente.
     app.dependency_overrides[get_hf_strategy_generator] = _FailingGenerator
     response = client.post(
         "/strategy/compare",
@@ -204,8 +205,8 @@ def test_compare_reports_engine_failure(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["baseline"]["generated_by"] == "baseline"
-    assert body["local"]["strategy"] is None and body["local"]["error"] is not None
-    assert body["hf"]["strategy"] is None and body["hf"]["error"] is not None
+    for v in body["variants"]:
+        assert v["strategy"] is None and v["error"] is not None
 
 
 def test_weather_returns_context(client: TestClient) -> None:

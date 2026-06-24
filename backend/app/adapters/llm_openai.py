@@ -15,6 +15,7 @@ from app.config import Settings, get_settings
 from app.domain.models import (
     AthleteProfile,
     CourseProfile,
+    GenerationMode,
     PaceStrategy,
     RaceContext,
     SurfaceContext,
@@ -23,7 +24,14 @@ from app.domain.models import (
 from app.prompts.strategy_system import (
     STRATEGY_SYSTEM_PROMPT,
     STRATEGY_SYSTEM_PROMPT_AUTONOMOUS,
+    STRATEGY_SYSTEM_PROMPT_COT,
 )
+
+_SYSTEM_BY_MODE = {
+    "anchored": STRATEGY_SYSTEM_PROMPT,
+    "autonomous": STRATEGY_SYSTEM_PROMPT_AUTONOMOUS,
+    "cot": STRATEGY_SYSTEM_PROMPT_COT,
+}
 
 _RETRY_INSTRUCTION = (
     "Ta réponse précédente n'était pas un JSON conforme au schéma. "
@@ -64,38 +72,40 @@ class OpenAICompatibleStrategyGenerator:
         weather: WeatherContext | None,
         surface: SurfaceContext | None,
         baseline: PaceStrategy | None = None,
-        autonomous: bool = False,
+        mode: GenerationMode = "anchored",
     ) -> PaceStrategy:
-        # Mode autonome : le LLM conçoit seul la stratégie (prompt dédié, pas de baseline injectée).
-        system = STRATEGY_SYSTEM_PROMPT_AUTONOMOUS if autonomous else STRATEGY_SYSTEM_PROMPT
-        anchor = None if autonomous else baseline
+        # anchored : ancré sur la baseline. autonomous/cot : le LLM conçoit seul (sans baseline).
+        # cot : raisonnement explicite imposé → pas de mode JSON (le modèle réfléchit avant).
+        anchor = baseline if mode == "anchored" else None
+        json_mode = mode != "cot"
         messages: list[Message] = [
-            {"role": "system", "content": system},
+            {"role": "system", "content": _SYSTEM_BY_MODE[mode]},
             {
                 "role": "user",
                 "content": _build_user_message(course, race, athlete, weather, surface, anchor),
             },
         ]
-        raw = await self._chat(messages)
+        raw = await self._chat(messages, json_mode=json_mode)
         try:
             return _parse_strategy(raw)
         except (json.JSONDecodeError, ValidationError):
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content": _RETRY_INSTRUCTION})
-            retry = await self._chat(messages)
+            retry = await self._chat(messages, json_mode=json_mode)
             try:
                 return _parse_strategy(retry)
             except (json.JSONDecodeError, ValidationError) as exc:
                 raise LLMGenerationError("Sortie LLM non conforme après retry.") from exc
 
-    async def _chat(self, messages: list[Message]) -> str:
+    async def _chat(self, messages: list[Message], *, json_mode: bool = True) -> str:
         payload: dict[str, Any] = {
             "model": self._model,
             "messages": messages,
             "temperature": 0.1,
-            "response_format": {"type": "json_object"},
             "stream": False,
         }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
         headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             response = await client.post(
@@ -107,10 +117,28 @@ class OpenAICompatibleStrategyGenerator:
 
 
 def _parse_strategy(raw: str) -> PaceStrategy:
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        data = _extract_json(raw)  # sortie CoT : JSON après le raisonnement
     strategy = PaceStrategy.model_validate(data)
     # On ne fait pas confiance au champ renvoyé : la provenance est imposée côté serveur.
     return strategy.model_copy(update={"generated_by": "llm"})
+
+
+def _extract_json(text: str) -> dict[str, Any]:
+    """Extrait le dernier objet JSON équilibré (le raisonnement peut contenir des accolades)."""
+    text = text.replace("```json", "").replace("```", "")
+    end = text.rfind("}")
+    depth = 0
+    for i in range(end, -1, -1):
+        if text[i] == "}":
+            depth += 1
+        elif text[i] == "{":
+            depth -= 1
+            if depth == 0:
+                return json.loads(text[i : end + 1])  # type: ignore[no-any-return]
+    raise json.JSONDecodeError("aucun objet JSON", text, 0)
 
 
 def _build_user_message(
