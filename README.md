@@ -16,7 +16,7 @@ journalisation des prédictions et **monitoring du modèle**.
 2. **Pipeline d'orchestration** (FastAPI) :
    - parsing du tracé + **nettoyage des altitudes** (Open Topo Data),
    - **forme athlète** (COROS : allure seuil, VO2max, récupération, poids),
-   - **météo jour J** (Open-Meteo : prévision ≤16 j, sinon climatologie ERA5 + « même date l'an dernier »),
+   - **météo jour J** (Open-Meteo : prévision ≤16 j, sinon **relevés de l'an dernier** + historique 3 ans, ERA5),
    - **baseline déterministe** (grade-adjusted pace, modèle de Minetti),
    - **génération LLM** (Llama 3.1 8B) *ancrée sur la baseline*, validée en JSON strict (Pydantic).
 3. **Garde-fous métier** : si la sortie LLM est aberrante ou indisponible → **repli sur la baseline**
@@ -101,8 +101,10 @@ Un **adapter OpenAI-compatible unique** : on bascule par 3 variables (`LLM_BASE_
 
 ## Qualité
 
-- **~104 tests** (pytest, respx pour mocker l'HTTP), **mypy strict**, **ruff** (lint + format).
-- **CI GitHub Actions** : lint + types + tests à chaque push/PR.
+- **~106 tests** (pytest, respx pour mocker l'HTTP), **mypy strict**, **ruff** (lint + format).
+- **CI GitHub Actions** : lint + types + tests à chaque push/PR ; hooks `pre-commit` à la racine
+  (`.pre-commit-config.yaml`). Le projet Python est **unique, géré à la racine** ; `backend/` et
+  `front/` sont des dossiers de sources.
 - **Garde-fous + fallback** : aucune réponse aberrante servie ; dégradation gracieuse si une source KO.
 - **Monitoring** : métriques qualité journalisées (latence, % IA vs repli, % garde-fous respectés,
   écart à la baseline) et exposées via `/stats` + page Monitoring.
