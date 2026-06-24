@@ -49,16 +49,33 @@ class PipelineResult:
 
 
 @dataclass(frozen=True)
+class Engine:
+    """Un moteur LLM à comparer (libellé + modèle + générateur)."""
+
+    label: str
+    model: str
+    generator: StrategyGenerator
+
+
+@dataclass(frozen=True)
+class EngineResult:
+    """Stratégie autonome brute d'un moteur (ou l'erreur rencontrée)."""
+
+    label: str
+    model: str
+    strategy: PaceStrategy | None
+    error: str | None
+
+
+@dataclass(frozen=True)
 class ComparisonResult:
-    """Trois stratégies (baseline / ancrée / autonome brute) sur le même contexte (cf. #74)."""
+    """Baseline (référence) + stratégies autonomes des moteurs comparés (cf. #74)."""
 
     course: CourseProfile
     athlete: AthleteProfile | None
     weather: WeatherContext | None
     baseline: PaceStrategy
-    anchored: PaceStrategy
-    autonomous: PaceStrategy | None
-    autonomous_error: str | None
+    engines: list[EngineResult]
 
 
 async def build_strategy(
@@ -106,13 +123,13 @@ async def build_comparison(
     elevation: ElevationProvider,
     athlete_provider: AthleteProvider,
     weather: WeatherProvider,
-    generator: StrategyGenerator,
+    engines: list[Engine],
     surface: SurfaceProvider | None = None,
 ) -> ComparisonResult:
-    """Enrichit une seule fois le contexte, puis produit les 3 stratégies à comparer (#74).
+    """Enrichit une seule fois le contexte, puis compare la baseline aux moteurs LLM (#74).
 
-    `baseline` et `anchored` réutilisent le pipeline standard (garde-fous + repli). `autonomous`
-    est la sortie LLM brute (sans garde-fous) ; toute panne devient `autonomous_error`.
+    Chaque moteur génère en mode **autonome brut** (sans baseline, sans garde-fou ni repli).
+    Toute panne d'un moteur devient son `error` ; les autres colonnes restent disponibles.
     """
     course = parse_gpx(gpx_content)
     course = await elevation.clean_elevations(course)
@@ -121,25 +138,27 @@ async def build_comparison(
     surface_ctx = await surface.get_surface(course) if surface is not None else None
 
     baseline = build_baseline_strategy(course, athlete, weather_ctx)
-    outcome = await generate_strategy(generator, course, race, athlete, weather_ctx, surface_ctx)
 
-    autonomous: PaceStrategy | None = None
-    autonomous_error: str | None = None
-    try:
-        autonomous = await generate_autonomous(
-            generator, course, race, athlete, weather_ctx, surface_ctx
+    results: list[EngineResult] = []
+    for engine in engines:
+        strategy: PaceStrategy | None = None
+        error: str | None = None
+        try:
+            strategy = await generate_autonomous(
+                engine.generator, course, race, athlete, weather_ctx, surface_ctx
+            )
+        except Exception as exc:  # mode brut : pas de repli, on remonte l'échec du moteur
+            error = f"{type(exc).__name__}: {exc}"
+        results.append(
+            EngineResult(label=engine.label, model=engine.model, strategy=strategy, error=error)
         )
-    except Exception as exc:  # mode brut : on n'a pas de repli, on remonte l'échec
-        autonomous_error = f"{type(exc).__name__}: {exc}"
 
     return ComparisonResult(
         course=course,
         athlete=athlete,
         weather=weather_ctx,
         baseline=baseline,
-        anchored=outcome.strategy,
-        autonomous=autonomous,
-        autonomous_error=autonomous_error,
+        engines=results,
     )
 
 

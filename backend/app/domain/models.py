@@ -178,17 +178,25 @@ class StrategyResponse(_Frozen):
     weather: WeatherContext | None = None
 
 
-class StrategyComparison(_Frozen):
-    """Réponse de `POST /strategy/compare` : 3 stratégies sur le même contexte (cf. #74).
+class ComparedStrategy(_Frozen):
+    """Stratégie autonome d'un moteur LLM donné, pour la comparaison (cf. #74)."""
 
-    `baseline` (déterministe), `anchored` (LLM ancré + garde-fous + repli) et `autonomous`
-    (LLM seul, **brut**, sans garde-fous — `None` si la sortie est inexploitable).
+    label: str = Field(description="Libellé du moteur, ex. « Modèle local ».")
+    model: str = Field(description="Identifiant du modèle, ex. « qwen2.5:14b ».")
+    strategy: PaceStrategy | None = None
+    error: str | None = Field(default=None, description="Message si la génération a échoué.")
+
+
+class StrategyComparison(_Frozen):
+    """Réponse de `POST /strategy/compare` : baseline + 2 moteurs LLM autonomes (cf. #74).
+
+    `baseline` (déterministe, référence) ; `local` et `hf` sont les stratégies **brutes**
+    (sans garde-fou ni repli) du modèle local (Ollama) et du modèle HF.
     """
 
     course: CourseSummary
     athlete: AthleteProfile | None = None
     weather: WeatherContext | None = None
     baseline: PaceStrategy
-    anchored: PaceStrategy
-    autonomous: PaceStrategy | None = None
-    autonomous_error: str | None = None
+    local: ComparedStrategy
+    hf: ComparedStrategy

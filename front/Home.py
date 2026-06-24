@@ -209,29 +209,31 @@ def _render_km_table(strategy: PaceStrategy) -> None:
 
 
 def _render_comparison(comp: StrategyComparison) -> None:
-    st.subheader("⚖️ Comparaison des stratégies")
+    st.subheader("⚖️ Comparaison : baseline vs modèle local vs modèle HF")
 
-    items = [("Baseline déterministe", comp.baseline), ("IA ancrée", comp.anchored)]
-    if comp.autonomous is not None:
-        items.append(("IA autonome (brute)", comp.autonomous))
+    # (titre, stratégie | None, erreur | None) — baseline = référence déterministe.
+    entries: list[tuple[str, PaceStrategy | None, str | None]] = [
+        ("🛡️ Baseline déterministe", comp.baseline, None),
+        (f"💻 {comp.local.label} · {comp.local.model}", comp.local.strategy, comp.local.error),
+        (f"☁️ {comp.hf.label} · {comp.hf.model}", comp.hf.strategy, comp.hf.error),
+    ]
 
-    cols = st.columns(len(items))
-    for col, (name, strat) in zip(cols, items, strict=True):
-        col.markdown(f"**{name}**")
-        col.metric("Temps estimé", _fmt_duration(strat.estimated_time_sec))
-        col.metric("Allure moyenne", _fmt_pace(strat.average_pace_sec_per_km))
+    cols = st.columns(len(entries))
+    for col, (title, strat, err) in zip(cols, entries, strict=True):
+        col.markdown(f"**{title}**")
+        if strat is None:
+            col.error(f"Échec : {err}")
+        else:
+            col.metric("Temps estimé", _fmt_duration(strat.estimated_time_sec))
+            col.metric("Allure moyenne", _fmt_pace(strat.average_pace_sec_per_km))
 
-    if comp.anchored.generated_by != "llm":
-        st.info("ℹ️ « IA ancrée » : repli baseline (sortie LLM rejetée par les garde-fous).")
-    if comp.autonomous is None:
-        st.error(f"🧠 IA autonome — échec du modèle : {comp.autonomous_error}")
-    else:
-        st.caption("⚠️ « IA autonome » = sortie **brute** du LLM : aucun garde-fou, aucun repli.")
+    st.caption("⚠️ Modèles en mode **autonome brut** : aucun garde-fou, aucun repli.")
 
     # Courbes d'allure superposées (forme longue → gère des longueurs différentes).
     rows = [
-        {"km": p.km_index, "Allure (s/km)": p.target_pace_sec_per_km, "Stratégie": name}
-        for name, strat in items
+        {"km": p.km_index, "Allure (s/km)": p.target_pace_sec_per_km, "Stratégie": title}
+        for title, strat, _ in entries
+        if strat is not None
         for p in strat.km_plans
     ]
     chart = (
@@ -252,16 +254,18 @@ def _render_comparison(comp: StrategyComparison) -> None:
         "km": [p.km_index for p in comp.baseline.km_plans],
         "pente %": [p.gradient_pct for p in comp.baseline.km_plans],
     }
-    for name, strat in items:
-        if len(strat.km_plans) == n:
-            table[name] = [_fmt_pace(p.target_pace_sec_per_km) for p in strat.km_plans]
-        else:
-            st.caption(f"« {name} » : {len(strat.km_plans)} km ≠ {n} segments → exclue du tableau.")
+    for title, strat, _ in entries:
+        if strat is not None and len(strat.km_plans) == n:
+            table[title] = [_fmt_pace(p.target_pace_sec_per_km) for p in strat.km_plans]
+        elif strat is not None:
+            st.caption(
+                f"« {title} » : {len(strat.km_plans)} km ≠ {n} segments → exclue du tableau."
+            )
     st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
 
-    for name, strat in items:
-        if strat.summary:
-            st.caption(f"**{name}** — {strat.summary}")
+    for title, strat, _ in entries:
+        if strat is not None and strat.summary:
+            st.caption(f"**{title}** — {strat.summary}")
 
 
 st.set_page_config(page_title="PaceRunner", page_icon="🏃", layout="wide")
@@ -286,8 +290,8 @@ with st.sidebar:
         race_time = col_time.time_input("Heure de départ", value=dtime(9, 0))
 
         submitted = st.form_submit_button("Générer la stratégie", type="primary")
-        compared = st.form_submit_button("⚖️ Comparer les stratégies")
-        st.caption("Comparer = baseline + IA ancrée + IA autonome brute (2 appels LLM, plus long).")
+        compared = st.form_submit_button("⚖️ Comparer les modèles")
+        st.caption("Comparer = baseline + modèle local + modèle HF (2 appels LLM, plus long).")
 
 
 if submitted:
@@ -366,7 +370,7 @@ elif compared:
         race_iso = datetime.combine(race_date, race_time).isoformat()
 
         try:
-            with st.spinner("⚖️ Génération des 3 stratégies (2 appels LLM)…"):
+            with st.spinner("⚖️ Baseline + modèle local + modèle HF (2 appels LLM)…"):
                 comp = compare_strategies(
                     gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
                 )

@@ -40,11 +40,20 @@ class LLMGenerationError(RuntimeError):
 class OpenAICompatibleStrategyGenerator:
     """Implémente le port `StrategyGenerator`."""
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        *,
+        base_url: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+    ) -> None:
         config = settings or get_settings()
-        self._base_url = config.llm_base_url.rstrip("/")
-        self._model = config.llm_model
-        self._api_key = config.llm_api_key.get_secret_value() if config.llm_api_key else None
+        # Overrides explicites (ex. second moteur HF pour la comparaison).
+        default_key = config.llm_api_key.get_secret_value() if config.llm_api_key else None
+        self._base_url = (base_url or config.llm_base_url).rstrip("/")
+        self._model = model or config.llm_model
+        self._api_key = api_key if api_key is not None else default_key
         self._timeout = config.llm_timeout_seconds
 
     async def generate(

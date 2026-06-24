@@ -10,6 +10,7 @@ from app.adapters.coros_mock import CorosMockAthleteProvider
 from app.api.routes import (
     get_athlete_provider,
     get_elevation_provider,
+    get_hf_strategy_generator,
     get_strategy_generator,
     get_weather_provider,
 )
@@ -171,8 +172,9 @@ def test_profile_rejects_invalid_gpx(client: TestClient) -> None:
     assert response.status_code == 422
 
 
-def test_compare_returns_three_strategies(client: TestClient) -> None:
+def test_compare_returns_baseline_local_and_hf(client: TestClient) -> None:
     app.dependency_overrides[get_strategy_generator] = _ValidGenerator
+    app.dependency_overrides[get_hf_strategy_generator] = _ValidGenerator
     response = client.post(
         "/strategy/compare",
         headers=_AUTH,
@@ -182,16 +184,17 @@ def test_compare_returns_three_strategies(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["baseline"]["generated_by"] == "baseline"
-    assert body["anchored"]["generated_by"] in {"llm", "baseline"}
-    # Mode autonome brut : sortie LLM telle quelle, marquée et alignée sur le parcours.
-    assert body["autonomous"] is not None
-    assert body["autonomous"]["generated_by"] == "llm_autonomous"
-    assert len(body["autonomous"]["km_plans"]) == len(body["course"]["segments"])
-    assert body["autonomous_error"] is None
+    # Deux moteurs autonomes bruts, alignés sur le parcours.
+    for key in ("local", "hf"):
+        col = body[key]
+        assert col["error"] is None
+        assert col["strategy"]["generated_by"] == "llm_autonomous"
+        assert len(col["strategy"]["km_plans"]) == len(body["course"]["segments"])
 
 
-def test_compare_reports_autonomous_failure(client: TestClient) -> None:
-    # Générateur en échec → autonome indisponible, baseline + ancrée (repli) toujours là.
+def test_compare_reports_engine_failure(client: TestClient) -> None:
+    # Moteurs en échec → chaque colonne porte une erreur, baseline toujours présente.
+    app.dependency_overrides[get_hf_strategy_generator] = _FailingGenerator
     response = client.post(
         "/strategy/compare",
         headers=_AUTH,
@@ -201,8 +204,8 @@ def test_compare_reports_autonomous_failure(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["baseline"]["generated_by"] == "baseline"
-    assert body["autonomous"] is None
-    assert body["autonomous_error"] is not None
+    assert body["local"]["strategy"] is None and body["local"]["error"] is not None
+    assert body["hf"]["strategy"] is None and body["hf"]["error"] is not None
 
 
 def test_weather_returns_context(client: TestClient) -> None:

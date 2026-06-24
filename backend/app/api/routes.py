@@ -23,6 +23,7 @@ from app.db.history import HistoryReader, NullHistoryReader, SqlHistoryReader
 from app.db.read_models import RunDetail, RunStats, RunSummary
 from app.domain.models import (
     AthleteProfile,
+    ComparedStrategy,
     CourseProfile,
     CourseSummary,
     RaceContext,
@@ -39,7 +40,7 @@ from app.domain.ports import (
     StrategyGenerator,
     WeatherProvider,
 )
-from app.services.strategy_service import build_comparison, build_strategy
+from app.services.strategy_service import Engine, build_comparison, build_strategy
 
 router = APIRouter()
 
@@ -98,6 +99,17 @@ def get_weather_provider() -> WeatherProvider:
 
 def get_strategy_generator() -> StrategyGenerator:
     return OpenAICompatibleStrategyGenerator()
+
+
+def get_hf_strategy_generator() -> StrategyGenerator:
+    """Second moteur (HF Inference) pour la comparaison ; clé = `hf_token`."""
+    settings = get_settings()
+    return OpenAICompatibleStrategyGenerator(
+        settings,
+        base_url=settings.compare_hf_base_url,
+        model=settings.compare_hf_model,
+        api_key=settings.hf_token.get_secret_value() if settings.hf_token else None,
+    )
 
 
 def get_prediction_repository() -> PredictionRepository:
@@ -187,9 +199,15 @@ async def compare_strategies(
     elevation: Annotated[ElevationProvider, Depends(get_elevation_provider)],
     athlete_provider: Annotated[AthleteProvider, Depends(get_athlete_provider)],
     weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
-    generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
+    local_generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
+    hf_generator: Annotated[StrategyGenerator, Depends(get_hf_strategy_generator)],
 ) -> StrategyComparison:
-    """Compare 3 stratégies sur le même contexte : baseline, LLM ancré, LLM autonome brut (#74)."""
+    """Compare la baseline au modèle local et au modèle HF (génération autonome brute, #74)."""
+    settings = get_settings()
+    engines = [
+        Engine(label="Modèle local", model=settings.llm_model, generator=local_generator),
+        Engine(label="Modèle HF", model=settings.compare_hf_model, generator=hf_generator),
+    ]
     content = await _read_gpx(gpx)
     race = RaceContext(race_datetime=race_datetime)
     try:
@@ -199,7 +217,7 @@ async def compare_strategies(
             elevation=elevation,
             athlete_provider=athlete_provider,
             weather=weather,
-            generator=generator,
+            engines=engines,
         )
     except GpxParseError as exc:
         raise HTTPException(
@@ -207,14 +225,16 @@ async def compare_strategies(
             detail=str(exc),
         ) from exc
 
+    local, hf = result.engines
     return StrategyComparison(
         course=_course_summary(result.course),
         athlete=result.athlete,
         weather=result.weather,
         baseline=result.baseline,
-        anchored=result.anchored,
-        autonomous=result.autonomous,
-        autonomous_error=result.autonomous_error,
+        local=ComparedStrategy(
+            label=local.label, model=local.model, strategy=local.strategy, error=local.error
+        ),
+        hf=ComparedStrategy(label=hf.label, model=hf.model, strategy=hf.strategy, error=hf.error),
     )
 
 
