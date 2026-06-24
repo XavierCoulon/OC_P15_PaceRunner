@@ -11,6 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
+from app.adapters.coros_activities import CorosActivityHistoryProvider
 from app.adapters.coros_athlete import CorosAthleteProvider
 from app.adapters.gpx_parser import GpxParseError, parse_gpx
 from app.adapters.llm_openai import OpenAICompatibleStrategyGenerator
@@ -19,8 +20,19 @@ from app.adapters.open_topo_data import OpenTopoDataProvider
 from app.adapters.prediction_repo import NullPredictionRepository, SqlPredictionRepository
 from app.api.security import require_api_token
 from app.config import get_settings
+from app.db.calibration import (
+    ActivityRepository,
+    NullActivityRepository,
+    SqlActivityRepository,
+)
 from app.db.history import HistoryReader, NullHistoryReader, SqlHistoryReader
-from app.db.read_models import RunDetail, RunStats, RunSummary
+from app.db.read_models import (
+    CalibrationRefreshResult,
+    CalibrationStatus,
+    RunDetail,
+    RunStats,
+    RunSummary,
+)
 from app.domain.models import (
     AthleteProfile,
     ComparedStrategy,
@@ -34,12 +46,14 @@ from app.domain.models import (
     WeatherContext,
 )
 from app.domain.ports import (
+    ActivityHistoryProvider,
     AthleteProvider,
     ElevationProvider,
     PredictionRepository,
     StrategyGenerator,
     WeatherProvider,
 )
+from app.services.calibration_service import CalibrationService
 from app.services.strategy_service import Engine, build_comparison, build_strategy
 
 router = APIRouter()
@@ -124,6 +138,18 @@ def get_history_reader() -> HistoryReader:
     if get_settings().database_url:
         return SqlHistoryReader()
     return NullHistoryReader()
+
+
+def get_activity_history_provider() -> ActivityHistoryProvider:
+    """Provider d'historique de courses COROS (querySportRecords)."""
+    return CorosActivityHistoryProvider()
+
+
+def get_activity_repository() -> ActivityRepository:
+    """Persistance des activités COROS si la base est configurée, sinon no-op."""
+    if get_settings().database_url:
+        return SqlActivityRepository()
+    return NullActivityRepository()
 
 
 @router.get("/health")
@@ -321,3 +347,37 @@ async def get_stats(
 ) -> RunStats:
     """KPIs agrégés du journal (monitoring)."""
     return await reader.compute_stats()
+
+
+@router.get(
+    "/calibration",
+    response_model=CalibrationStatus,
+    dependencies=[Depends(require_api_token)],
+)
+async def get_calibration(
+    repository: Annotated[ActivityRepository, Depends(get_activity_repository)],
+) -> CalibrationStatus:
+    """État des données COROS en base (prérequis de la génération, bloc 1 du front)."""
+    return await repository.status()
+
+
+@router.post(
+    "/calibration/refresh",
+    response_model=CalibrationRefreshResult,
+    dependencies=[Depends(require_api_token)],
+)
+async def refresh_calibration(
+    provider: Annotated[ActivityHistoryProvider, Depends(get_activity_history_provider)],
+    repository: Annotated[ActivityRepository, Depends(get_activity_repository)],
+    incremental: Annotated[
+        bool, Query(description="Incrémental (défaut) ou backfill complet.")
+    ] = True,
+) -> CalibrationRefreshResult:
+    """Récupère l'historique COROS et le persiste (hors chemin /strategy). Idempotent."""
+    service = CalibrationService(provider, repository)
+    result = await service.ingest(incremental=incremental)
+    return CalibrationRefreshResult(
+        fetched=result.fetched,
+        inserted=result.inserted,
+        status=await repository.status(),
+    )

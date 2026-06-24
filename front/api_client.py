@@ -10,7 +10,12 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
-from app.db.read_models import RunStats, RunSummary
+from app.db.read_models import (
+    CalibrationRefreshResult,
+    CalibrationStatus,
+    RunStats,
+    RunSummary,
+)
 from app.domain.models import (
     AthleteProfile,
     CourseSummary,
@@ -20,6 +25,7 @@ from app.domain.models import (
 )
 
 _TIMEOUT_SECONDS = 180.0
+_REFRESH_TIMEOUT_SECONDS = 600.0
 _GET_TIMEOUT_SECONDS = 30.0
 
 
@@ -143,6 +149,36 @@ def fetch_stats() -> RunStats:
         return RunStats.model_validate(data)
     except ValueError as exc:
         raise BackendError("Réponse de statistiques invalide.") from exc
+
+
+def fetch_calibration_status() -> CalibrationStatus:
+    """État des données COROS en base (`GET /calibration`) — prérequis de la génération."""
+    data = _get("/calibration", None)
+    try:
+        return CalibrationStatus.model_validate(data)
+    except ValueError as exc:
+        raise BackendError("Réponse de calibration invalide.") from exc
+
+
+def refresh_calibration(*, incremental: bool = True) -> CalibrationRefreshResult:
+    """Déclenche l'ingestion COROS (`POST /calibration/refresh`). Long : backfill possible."""
+    settings = get_settings()
+    token = settings.api_token.get_secret_value() if settings.api_token else ""
+    url = f"{settings.backend_url}/calibration/refresh"
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"incremental": "true" if incremental else "false"}
+    try:
+        response = httpx.post(url, params=params, headers=headers, timeout=_REFRESH_TIMEOUT_SECONDS)
+    except httpx.RequestError as exc:
+        raise BackendError(f"Backend injoignable ({exc}).") from exc
+    if response.status_code == 401:
+        raise BackendError("Authentification refusée — vérifie le token API.")
+    if response.status_code != 200:
+        raise BackendError(f"Erreur backend (HTTP {response.status_code}).")
+    try:
+        return CalibrationRefreshResult.model_validate(response.json())
+    except ValueError as exc:
+        raise BackendError("Réponse de rafraîchissement invalide.") from exc
 
 
 def _get(path: str, params: dict[str, str] | None) -> Any:

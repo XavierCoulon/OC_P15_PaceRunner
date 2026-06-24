@@ -1,6 +1,6 @@
 """Modèles de lecture du journal (réponses des endpoints /history et /stats)."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -44,3 +44,22 @@ class RunStats(BaseModel):
     guardrails_passed_pct: float
     avg_deviation_vs_baseline_pct: float | None
     avg_latency_ms: float | None
+
+
+class CalibrationStatus(BaseModel):
+    """État des données COROS en base (réponse de `GET /calibration`, bloc 1 du front)."""
+
+    activity_count: int
+    first_activity_date: date | None
+    last_activity_date: date | None
+    last_synced_at: datetime | None
+    trail_sample_count: int
+    calibration_computed_at: datetime | None
+
+
+class CalibrationRefreshResult(BaseModel):
+    """Réponse de `POST /calibration/refresh` : bilan d'ingestion + état résultant."""
+
+    fetched: int
+    inserted: int
+    status: CalibrationStatus

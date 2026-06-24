@@ -16,6 +16,7 @@ import streamlit as st
 from api_client import (
     BackendError,
     compare_strategies,
+    fetch_calibration_status,
     fetch_profile,
 )
 from app.config import get_settings
@@ -258,6 +259,19 @@ st.caption(
     "Stratégie d'allure km par km à partir d'un GPX, de ta forme COROS et de la météo jour J."
 )
 
+# Prérequis : des données COROS doivent avoir été récupérées (bloc 1). Sinon, génération bloquée.
+data_ready = False
+try:
+    data_ready = fetch_calibration_status().activity_count > 0
+except BackendError as exc:
+    st.error(str(exc))
+
+if not data_ready:
+    st.warning(
+        "⛔ Aucune donnée COROS en base. Va d'abord sur la page **📥 Données COROS** "
+        "(barre latérale) pour récupérer ton historique — c'est le prérequis à la génération."
+    )
+
 with st.sidebar:
     st.header("Paramètres de course")
     with st.form("strategy_form"):
@@ -272,7 +286,9 @@ with st.sidebar:
         )
         race_time = col_time.time_input("Heure de départ", value=dtime(9, 0))
 
-        submitted = st.form_submit_button("Générer la stratégie", type="primary")
+        submitted = st.form_submit_button(
+            "Générer la stratégie", type="primary", disabled=not data_ready
+        )
         st.caption(
             "Génère et compare : baseline + local (autonome) + local (CoT) + HF (CoT) — "
             "3 appels LLM, comptez ~1-2 min."
