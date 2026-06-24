@@ -20,7 +20,10 @@ from app.domain.models import (
     SurfaceContext,
     WeatherContext,
 )
-from app.prompts.strategy_system import STRATEGY_SYSTEM_PROMPT
+from app.prompts.strategy_system import (
+    STRATEGY_SYSTEM_PROMPT,
+    STRATEGY_SYSTEM_PROMPT_AUTONOMOUS,
+)
 
 _RETRY_INSTRUCTION = (
     "Ta réponse précédente n'était pas un JSON conforme au schéma. "
@@ -52,12 +55,16 @@ class OpenAICompatibleStrategyGenerator:
         weather: WeatherContext | None,
         surface: SurfaceContext | None,
         baseline: PaceStrategy | None = None,
+        autonomous: bool = False,
     ) -> PaceStrategy:
+        # Mode autonome : le LLM conçoit seul la stratégie (prompt dédié, pas de baseline injectée).
+        system = STRATEGY_SYSTEM_PROMPT_AUTONOMOUS if autonomous else STRATEGY_SYSTEM_PROMPT
+        anchor = None if autonomous else baseline
         messages: list[Message] = [
-            {"role": "system", "content": STRATEGY_SYSTEM_PROMPT},
+            {"role": "system", "content": system},
             {
                 "role": "user",
-                "content": _build_user_message(course, race, athlete, weather, surface, baseline),
+                "content": _build_user_message(course, race, athlete, weather, surface, anchor),
             },
         ]
         raw = await self._chat(messages)

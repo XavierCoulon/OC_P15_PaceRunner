@@ -176,3 +176,19 @@ class StrategyResponse(_Frozen):
     course: CourseSummary
     athlete: AthleteProfile | None = None
     weather: WeatherContext | None = None
+
+
+class StrategyComparison(_Frozen):
+    """Réponse de `POST /strategy/compare` : 3 stratégies sur le même contexte (cf. #74).
+
+    `baseline` (déterministe), `anchored` (LLM ancré + garde-fous + repli) et `autonomous`
+    (LLM seul, **brut**, sans garde-fous — `None` si la sortie est inexploitable).
+    """
+
+    course: CourseSummary
+    athlete: AthleteProfile | None = None
+    weather: WeatherContext | None = None
+    baseline: PaceStrategy
+    anchored: PaceStrategy
+    autonomous: PaceStrategy | None = None
+    autonomous_error: str | None = None

@@ -14,6 +14,7 @@ import streamlit as st
 
 from api_client import (
     BackendError,
+    compare_strategies,
     fetch_athlete,
     fetch_profile,
     fetch_weather,
@@ -25,6 +26,7 @@ from app.domain.models import (
     CourseSummary,
     PaceStrategy,
     RoutePoint,
+    StrategyComparison,
     WeatherContext,
 )
 from viz import km_table_rows, strategy_rows, weather_summary
@@ -206,6 +208,62 @@ def _render_km_table(strategy: PaceStrategy) -> None:
     )
 
 
+def _render_comparison(comp: StrategyComparison) -> None:
+    st.subheader("⚖️ Comparaison des stratégies")
+
+    items = [("Baseline déterministe", comp.baseline), ("IA ancrée", comp.anchored)]
+    if comp.autonomous is not None:
+        items.append(("IA autonome (brute)", comp.autonomous))
+
+    cols = st.columns(len(items))
+    for col, (name, strat) in zip(cols, items, strict=True):
+        col.markdown(f"**{name}**")
+        col.metric("Temps estimé", _fmt_duration(strat.estimated_time_sec))
+        col.metric("Allure moyenne", _fmt_pace(strat.average_pace_sec_per_km))
+
+    if comp.anchored.generated_by != "llm":
+        st.info("ℹ️ « IA ancrée » : repli baseline (sortie LLM rejetée par les garde-fous).")
+    if comp.autonomous is None:
+        st.error(f"🧠 IA autonome — échec du modèle : {comp.autonomous_error}")
+    else:
+        st.caption("⚠️ « IA autonome » = sortie **brute** du LLM : aucun garde-fou, aucun repli.")
+
+    # Courbes d'allure superposées (forme longue → gère des longueurs différentes).
+    rows = [
+        {"km": p.km_index, "Allure (s/km)": p.target_pace_sec_per_km, "Stratégie": name}
+        for name, strat in items
+        for p in strat.km_plans
+    ]
+    chart = (
+        alt.Chart(pd.DataFrame(rows))
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("km:Q", title="Kilomètre"),
+            y=alt.Y("Allure (s/km):Q", scale=alt.Scale(reverse=True)),
+            color=alt.Color("Stratégie:N", title="Stratégie"),
+            tooltip=["km", "Stratégie", "Allure (s/km)"],
+        )
+    )
+    st.altair_chart(chart, use_container_width=True)
+
+    # Tableau km/km côte à côte (uniquement les stratégies alignées sur le parcours).
+    n = len(comp.baseline.km_plans)
+    table: dict[str, list[object]] = {
+        "km": [p.km_index for p in comp.baseline.km_plans],
+        "pente %": [p.gradient_pct for p in comp.baseline.km_plans],
+    }
+    for name, strat in items:
+        if len(strat.km_plans) == n:
+            table[name] = [_fmt_pace(p.target_pace_sec_per_km) for p in strat.km_plans]
+        else:
+            st.caption(f"« {name} » : {len(strat.km_plans)} km ≠ {n} segments → exclue du tableau.")
+    st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
+
+    for name, strat in items:
+        if strat.summary:
+            st.caption(f"**{name}** — {strat.summary}")
+
+
 st.set_page_config(page_title="PaceRunner", page_icon="🏃", layout="wide")
 
 st.title("🏃 PaceRunner")
@@ -228,6 +286,8 @@ with st.sidebar:
         race_time = col_time.time_input("Heure de départ", value=dtime(9, 0))
 
         submitted = st.form_submit_button("Générer la stratégie", type="primary")
+        compared = st.form_submit_button("⚖️ Comparer les stratégies")
+        st.caption("Comparer = baseline + IA ancrée + IA autonome brute (2 appels LLM, plus long).")
 
 
 if submitted:
@@ -297,5 +357,30 @@ if submitted:
 
         _render_charts(strategy)
         _render_km_table(strategy)
+elif compared:
+    if gpx_file is None:
+        st.warning("Merci de fournir un fichier GPX.")
+    elif isinstance(race_date, date) and isinstance(race_time, dtime):
+        gpx_bytes = gpx_file.getvalue()
+        filename = gpx_file.name
+        race_iso = datetime.combine(race_date, race_time).isoformat()
+
+        try:
+            with st.spinner("⚖️ Génération des 3 stratégies (2 appels LLM)…"):
+                comp = compare_strategies(
+                    gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
+                )
+        except BackendError as exc:
+            st.error(str(exc))
+            st.stop()
+
+        cols = st.columns(2)
+        cols[0].metric("Distance", f"{comp.course.distance_km:.2f} km")
+        cols[1].metric("Dénivelé +", f"{comp.course.elevation_gain_m:.0f} m")
+        _render_elevation_note(comp.course)
+        _render_map(comp.course.route)
+        _render_athlete(comp.athlete)
+        _render_weather(comp.weather)
+        _render_comparison(comp)
 else:
     st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer la stratégie ».")

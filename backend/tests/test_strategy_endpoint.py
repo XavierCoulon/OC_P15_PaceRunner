@@ -14,7 +14,15 @@ from app.api.routes import (
     get_weather_provider,
 )
 from app.config import get_settings
-from app.domain.models import CourseProfile, PaceStrategy, WeatherContext
+from app.domain.models import (
+    AthleteProfile,
+    CourseProfile,
+    KmPlan,
+    PaceStrategy,
+    RaceContext,
+    SurfaceContext,
+    WeatherContext,
+)
 from app.main import app
 
 _TOKEN = "secret-token"
@@ -46,6 +54,38 @@ class _FakeWeather:
 class _FailingGenerator:
     async def generate(self, *args: object, **kwargs: object) -> PaceStrategy:
         raise RuntimeError("LLM indisponible")  # force le fallback baseline
+
+
+class _ValidGenerator:
+    """Renvoie une stratégie alignée sur le parcours (un km_plan par segment)."""
+
+    async def generate(
+        self,
+        course: CourseProfile,
+        race: RaceContext,
+        athlete: AthleteProfile | None,
+        weather: WeatherContext | None,
+        surface: SurfaceContext | None,
+        baseline: PaceStrategy | None = None,
+        autonomous: bool = False,
+    ) -> PaceStrategy:
+        plans = [
+            KmPlan(
+                km_index=s.km_index,
+                target_pace_sec_per_km=330.0,
+                effort="steady",
+                gradient_pct=s.gradient_pct,
+            )
+            for s in course.segments
+        ]
+        return PaceStrategy(
+            distance_km=course.distance_km,
+            estimated_time_sec=1.0,
+            average_pace_sec_per_km=1.0,
+            km_plans=plans,
+            summary="auto" if autonomous else "ancrée",
+            generated_by="llm",
+        )
 
 
 @pytest.fixture
@@ -129,6 +169,40 @@ def test_profile_rejects_invalid_gpx(client: TestClient) -> None:
         files={"gpx": ("bad.gpx", "pas du gpx", "application/gpx+xml")},
     )
     assert response.status_code == 422
+
+
+def test_compare_returns_three_strategies(client: TestClient) -> None:
+    app.dependency_overrides[get_strategy_generator] = _ValidGenerator
+    response = client.post(
+        "/strategy/compare",
+        headers=_AUTH,
+        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
+        data={"race_datetime": "2026-09-01T09:00:00"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["baseline"]["generated_by"] == "baseline"
+    assert body["anchored"]["generated_by"] in {"llm", "baseline"}
+    # Mode autonome brut : sortie LLM telle quelle, marquée et alignée sur le parcours.
+    assert body["autonomous"] is not None
+    assert body["autonomous"]["generated_by"] == "llm_autonomous"
+    assert len(body["autonomous"]["km_plans"]) == len(body["course"]["segments"])
+    assert body["autonomous_error"] is None
+
+
+def test_compare_reports_autonomous_failure(client: TestClient) -> None:
+    # Générateur en échec → autonome indisponible, baseline + ancrée (repli) toujours là.
+    response = client.post(
+        "/strategy/compare",
+        headers=_AUTH,
+        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
+        data={"race_datetime": "2026-09-01T09:00:00"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["baseline"]["generated_by"] == "baseline"
+    assert body["autonomous"] is None
+    assert body["autonomous_error"] is not None
 
 
 def test_weather_returns_context(client: TestClient) -> None:

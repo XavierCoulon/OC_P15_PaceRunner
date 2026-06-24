@@ -63,6 +63,43 @@ async def generate_strategy(
     return GenerationOutcome(strategy=strategy, quality=quality)
 
 
+async def generate_autonomous(
+    generator: StrategyGenerator,
+    course: CourseProfile,
+    race: RaceContext,
+    athlete: AthleteProfile | None,
+    weather: WeatherContext | None,
+    surface: SurfaceContext | None,
+) -> PaceStrategy:
+    """Stratégie LLM **autonome et brute** : pas de baseline, **aucun garde-fou ni repli**.
+
+    Sert à mesurer le modèle seul (cf. #74). On recalcule seulement les totaux (l'arithmétique
+    LLM n'est pas fiable) sans toucher aux allures. Toute panne/sortie inexploitable se propage.
+    """
+    raw = await generator.generate(
+        course, race, athlete, weather, surface, baseline=None, autonomous=True
+    )
+    strategy = raw.model_copy(update={"generated_by": "llm_autonomous"})
+    if len(strategy.km_plans) == len(course.segments):
+        strategy = _recompute_totals_only(strategy, course)
+    return strategy
+
+
+def _recompute_totals_only(strategy: PaceStrategy, course: CourseProfile) -> PaceStrategy:
+    """Recalcule temps total + allure moyenne depuis les allures km, sans modifier les km_plans."""
+    distances = [segment.distance_km for segment in course.segments]
+    total_time = sum(
+        plan.target_pace_sec_per_km * dist
+        for plan, dist in zip(strategy.km_plans, distances, strict=True)
+    )
+    return strategy.model_copy(
+        update={
+            "estimated_time_sec": round(total_time, 1),
+            "average_pace_sec_per_km": round(total_time / course.distance_km, 1),
+        }
+    )
+
+
 def recompute_totals(strategy: PaceStrategy, course: CourseProfile) -> PaceStrategy:
     """Normalise la sortie LLM : effort recalculé depuis la pente (côté serveur), puis temps estimé
     et allure moyenne recalculés depuis les allures km (l'arithmétique LLM n'est pas fiable)."""

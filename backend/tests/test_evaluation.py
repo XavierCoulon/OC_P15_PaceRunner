@@ -67,6 +67,7 @@ class _FakeGenerator:
         weather: WeatherContext | None,
         surface: SurfaceContext | None,
         baseline: PaceStrategy | None = None,
+        autonomous: bool = False,
     ) -> PaceStrategy:
         plans = [
             KmPlan(
