@@ -47,6 +47,7 @@ class PredictionRun(SQLModel, table=True):
     latency_ms: float | None = None
     guardrails_passed: bool = False
     deviation_vs_baseline_pct: float | None = None
+    calibration_used: bool = Field(default=False, index=True)
     error: str | None = None
 
 

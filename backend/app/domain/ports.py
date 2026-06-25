@@ -109,4 +109,5 @@ class PredictionRepository(Protocol):
         latency_ms: float,
         guardrails_passed: bool,
         deviation_vs_baseline_pct: float,
+        calibration_used: bool = False,
     ) -> None: ...

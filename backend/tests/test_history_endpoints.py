@@ -56,6 +56,7 @@ class _FakeReader:
             baseline_runs=1,
             llm_share_pct=75.0,
             guardrails_passed_pct=75.0,
+            calibration_used_pct=50.0,
             avg_deviation_vs_baseline_pct=-1.5,
             avg_latency_ms=1600.0,
         )

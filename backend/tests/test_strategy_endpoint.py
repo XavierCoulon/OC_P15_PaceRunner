@@ -7,12 +7,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.adapters.coros_mock import CorosMockAthleteProvider
+from app.adapters.prediction_repo import NullPredictionRepository
 from app.api.routes import (
     get_athlete_provider,
     get_calibration_store,
     get_deepseek_generator,
     get_elevation_provider,
     get_llama_generator,
+    get_prediction_repository,
     get_strategy_generator,
     get_weather_provider,
 )
@@ -105,6 +107,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     app.dependency_overrides[get_llama_generator] = _FailingGenerator
     app.dependency_overrides[get_deepseek_generator] = _FailingGenerator
     app.dependency_overrides[get_calibration_store] = NullCalibrationStore
+    app.dependency_overrides[get_prediction_repository] = NullPredictionRepository
     yield TestClient(app)
     app.dependency_overrides.clear()
     get_settings.cache_clear()
@@ -200,6 +203,45 @@ def test_compare_returns_baseline_and_two_variants(client: TestClient) -> None:
     for v in variants:
         assert v["error"] is None
         assert v["strategy"]["generated_by"] == f"llm_{v['mode']}"
+
+
+class _RecordingRepository:
+    def __init__(self) -> None:
+        self.runs: list[dict[str, object]] = []
+
+    async def save_run(self, **kwargs: object) -> None:
+        self.runs.append(kwargs)
+
+
+def test_generate_journals_one_run(client: TestClient) -> None:
+    repo = _RecordingRepository()
+    app.dependency_overrides[get_deepseek_generator] = _ValidGenerator
+    app.dependency_overrides[get_prediction_repository] = lambda: repo
+    response = client.post(
+        "/strategy/generate",
+        headers=_AUTH,
+        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
+        data={"race_datetime": "2026-09-01T09:00:00"},
+    )
+    assert response.status_code == 200
+    # La reco de production est journalisée (monitoring) ; la calibration est absente (NullStore).
+    assert len(repo.runs) == 1
+    assert repo.runs[0]["calibration_used"] is False
+
+
+def test_compare_does_not_journal(client: TestClient) -> None:
+    repo = _RecordingRepository()
+    app.dependency_overrides[get_llama_generator] = _ValidGenerator
+    app.dependency_overrides[get_deepseek_generator] = _ValidGenerator
+    app.dependency_overrides[get_prediction_repository] = lambda: repo
+    response = client.post(
+        "/strategy/compare",
+        headers=_AUTH,
+        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
+        data={"race_datetime": "2026-09-01T09:00:00"},
+    )
+    assert response.status_code == 200
+    assert repo.runs == []  # « Comparer » = benchmark, non journalisé
 
 
 def test_generate_returns_only_recommended(client: TestClient) -> None:

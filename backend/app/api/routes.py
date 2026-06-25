@@ -275,6 +275,7 @@ async def generate_recommended(
     weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
     deepseek: Annotated[StrategyGenerator, Depends(get_deepseek_generator)],
     calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
+    repository: Annotated[PredictionRepository, Depends(get_prediction_repository)],
 ) -> StrategyComparison:
     """« Générer » : reco ancrée (baseline + DeepSeek, tactique + narratif). Un seul appel LLM."""
     content = await _read_gpx(gpx)
@@ -289,6 +290,7 @@ async def generate_recommended(
             engines=[],
             recommended_generator=deepseek,
             calibration=await calibration_store.load(),
+            repository=repository,
         )
     except GpxParseError as exc:
         raise HTTPException(

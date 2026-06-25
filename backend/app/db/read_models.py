@@ -37,13 +37,14 @@ class RunDetail(RunSummary):
 
 
 class RunStats(BaseModel):
-    """KPIs agrégés du journal (monitoring, C5)."""
+    """KPIs agrégés du journal de production (monitoring « Générer », C5)."""
 
     total_runs: int
     llm_runs: int
     baseline_runs: int
     llm_share_pct: float
     guardrails_passed_pct: float
+    calibration_used_pct: float
     avg_deviation_vs_baseline_pct: float | None
     avg_latency_ms: float | None
 

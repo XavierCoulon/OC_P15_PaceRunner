@@ -113,7 +113,15 @@ async def build_strategy(
 
     if repository is not None:
         await _journal(
-            repository, gpx_hash, course, race, athlete, weather_ctx, surface_ctx, outcome
+            repository,
+            gpx_hash,
+            course,
+            race,
+            athlete,
+            weather_ctx,
+            surface_ctx,
+            outcome,
+            calibration is not None,
         )
     return PipelineResult(
         strategy=outcome.strategy,
@@ -135,13 +143,14 @@ async def build_comparison(
     recommended_generator: StrategyGenerator | None = None,
     surface: SurfaceProvider | None = None,
     calibration: CalibrationProfile | None = None,
+    repository: PredictionRepository | None = None,
 ) -> ComparisonResult:
     """Enrichit une seule fois le contexte, produit (optionnellement) la **reco ancrée** puis
     compare la baseline aux moteurs LLM autonomes (#74).
 
     La reco ancrée (si `recommended_generator` est fourni) passe par les garde-fous + repli
-    baseline (tactique bornée + narratif). Les moteurs de comparaison génèrent en mode **autonome
-    brut** (sans baseline, ni garde-fou, ni repli).
+    baseline (tactique bornée + narratif) et est **journalisée** (monitoring production). Les
+    moteurs de comparaison génèrent en mode **autonome brut** (sans baseline, ni garde-fou).
     """
     course = parse_gpx(gpx_content)
     course = await elevation.clean_elevations(course)
@@ -150,15 +159,27 @@ async def build_comparison(
     surface_ctx = await surface.get_surface(course) if surface is not None else None
 
     baseline = build_baseline_strategy(course, athlete, weather_ctx, calibration)
-    recommended = (
-        (
-            await generate_strategy(
-                recommended_generator, course, race, athlete, weather_ctx, surface_ctx, calibration
-            )
-        ).strategy
+    recommended_outcome = (
+        await generate_strategy(
+            recommended_generator, course, race, athlete, weather_ctx, surface_ctx, calibration
+        )
         if recommended_generator is not None
         else None
     )
+    recommended = recommended_outcome.strategy if recommended_outcome is not None else None
+    if repository is not None and recommended_outcome is not None:
+        gpx_hash = hashlib.sha256(gpx_content.encode("utf-8")).hexdigest()
+        await _journal(
+            repository,
+            gpx_hash,
+            course,
+            race,
+            athlete,
+            weather_ctx,
+            surface_ctx,
+            recommended_outcome,
+            calibration is not None,
+        )
 
     results: list[EngineResult] = []
     for engine in engines:
@@ -206,6 +227,7 @@ async def _journal(
     weather: WeatherContext | None,
     surface: SurfaceContext | None,
     outcome: GenerationOutcome,
+    calibration_used: bool,
 ) -> None:
     """Journalise le run sans bloquer : un échec d'écriture est loggé, pas propagé."""
     try:
@@ -220,6 +242,7 @@ async def _journal(
             latency_ms=outcome.quality.latency_ms,
             guardrails_passed=outcome.quality.llm_guardrails_passed,
             deviation_vs_baseline_pct=outcome.quality.deviation_vs_baseline_pct,
+            calibration_used=calibration_used,
         )
     except Exception as exc:  # journalisation best-effort
         _logger.warning("Échec de journalisation du run : %r", exc)

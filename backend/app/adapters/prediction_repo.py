@@ -27,6 +27,7 @@ def to_prediction_run(
     latency_ms: float,
     guardrails_passed: bool,
     deviation_vs_baseline_pct: float,
+    calibration_used: bool = False,
 ) -> PredictionRun:
     """Construit la ligne de journal à partir des données du pipeline."""
     race_dt = race.race_datetime.replace(tzinfo=None)
@@ -46,6 +47,7 @@ def to_prediction_run(
         latency_ms=latency_ms,
         guardrails_passed=guardrails_passed,
         deviation_vs_baseline_pct=deviation_vs_baseline_pct,
+        calibration_used=calibration_used,
     )
 
 
@@ -65,6 +67,7 @@ class SqlPredictionRepository:
         latency_ms: float,
         guardrails_passed: bool,
         deviation_vs_baseline_pct: float,
+        calibration_used: bool = False,
     ) -> None:
         run = to_prediction_run(
             gpx_hash=gpx_hash,
@@ -77,6 +80,7 @@ class SqlPredictionRepository:
             latency_ms=latency_ms,
             guardrails_passed=guardrails_passed,
             deviation_vs_baseline_pct=deviation_vs_baseline_pct,
+            calibration_used=calibration_used,
         )
         async with session_factory()() as session:
             session.add(run)
