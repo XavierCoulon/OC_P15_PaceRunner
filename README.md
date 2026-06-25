@@ -72,18 +72,17 @@ cp .env.example .env    # puis renseigner les secrets (API_TOKEN, COROS, DATABAS
 Lancer toute la stack (backend `:8000` + front `:7860`) :
 
 ```bash
-make dev      # moteur LLM LOCAL (Ollama, démarré automatiquement)
-make dev-hf   # moteur LLM HF Inference (token depuis HF_TOKEN du .env)
+make dev      # Ollama (llama3.1:8b, démarré auto) + backend + front
 ```
 
-Le front est sur **http://localhost:7860**. Le choix du moteur LLM se fait par config
-(cf. [« Choisir le moteur LLM »](#choisir-le-moteur-llm-local-ou-hf) plus bas).
+Le front est sur **http://localhost:7860**. « Générer » utilise **DeepSeek** via HF Inference
+(nécessite `HF_TOKEN` dans `.env`) ; « Comparer » ajoute **llama3.1:8b** en local (Ollama).
 
 ### Commandes utiles (`make help`)
 
 | Commande | Rôle |
 |---|---|
-| `make dev` / `make dev-hf` | Stack complète, moteur Ollama / HF |
+| `make dev` | Stack complète (Ollama + backend + front) |
 | `make run` / `make front` | Backend seul / front seul |
 | `make check` | lint + types + tests (comme la CI) |
 | `make eval` | Évalue le LLM vs baseline sur des parcours types |
