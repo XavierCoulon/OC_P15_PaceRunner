@@ -96,21 +96,25 @@ class OpenAICompatibleStrategyGenerator:
             },
         ]
         raw = await self._chat(messages, json_mode=json_mode)
-        strategy, used_raw = await self._parse_with_retry(messages, raw, json_mode=json_mode)
+        strategy, used_raw = await self._parse_with_retry(messages, raw)
         if sections:
             strategy = _attach_section_narrative(strategy, sections, used_raw)
         return strategy
 
     async def _parse_with_retry(
-        self, messages: list[Message], raw: str, *, json_mode: bool
+        self, messages: list[Message], raw: str
     ) -> tuple[PaceStrategy, str]:
-        """Parse la sortie (un retry si JSON non conforme). Renvoie (stratégie, brut retenu)."""
+        """Parse la sortie (un retry si JSON non conforme). Renvoie (stratégie, brut retenu).
+
+        Le **retry correctif force le mode JSON** : il ne réclame que l'objet final, ce que même
+        un petit modèle respecte mieux — réduit les échecs en CoT (variantes de comparaison #74).
+        """
         try:
             return _parse_strategy(raw), raw
         except (json.JSONDecodeError, ValidationError):
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content": _RETRY_INSTRUCTION})
-            retry = await self._chat(messages, json_mode=json_mode)
+            retry = await self._chat(messages, json_mode=True)
             try:
                 return _parse_strategy(retry), retry
             except (json.JSONDecodeError, ValidationError) as exc:
