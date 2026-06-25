@@ -78,6 +78,15 @@ make dev      # Ollama (llama3.1:8b, démarré auto) + backend + front
 Le front est sur **http://localhost:7860**. « Générer » utilise **DeepSeek** via HF Inference
 (nécessite `HF_TOKEN` dans `.env`) ; « Comparer » ajoute **llama3.1:8b** en local (Ollama).
 
+> **Deux usages distincts :**
+> - **« Générer »** = stratégie de production. DeepSeek est **ancré sur la baseline** déterministe
+>   (tactique bornée à ±20 %) avec **garde-fous + repli baseline**. C'est la stratégie fiable.
+> - **« Comparer »** = banc d'essai (#74). llama3.1:8b et DeepSeek conçoivent **en mode autonome
+>   brut : sans la baseline, sans garde-fou, sans repli**. C'est volontaire — ça sert à mesurer ce
+>   que vaut un LLM seul. Conséquence : sur terrain raide, les variantes autonomes **sous-estiment
+>   le coût des fortes pentes** et deviennent **trop optimistes** (surtout le 8b). Ne pas prendre
+>   ces colonnes pour des temps réalistes : la référence crédible reste la baseline / « Générer ».
+
 ### Commandes utiles (`make help`)
 
 | Commande | Rôle |
