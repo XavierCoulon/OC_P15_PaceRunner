@@ -5,6 +5,7 @@ dénivelé), puis lance la **comparaison** : baseline déterministe + variantes 
 autonome/CoT), avec la forme COROS et la météo jour J (cf. #74).
 """
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from datetime import time as dtime
 
@@ -297,6 +298,41 @@ def _render_comparison(comp: StrategyComparison) -> None:
             st.caption(f"**{title}** — {strat.summary}")
 
 
+@dataclass
+class _GenResult:
+    """Résultat « Générer » mémorisé (persiste à travers les reruns Streamlit)."""
+
+    profile: CourseSummary
+    athlete: AthleteProfile | None
+    weather: WeatherContext | None
+    recommended: PaceStrategy | None
+
+
+@dataclass
+class _CompareResult:
+    """Résultat « Comparer » mémorisé."""
+
+    comp: StrategyComparison
+
+
+def _render_generate(result: _GenResult) -> None:
+    """Réaffiche un résultat « Générer » mémorisé (profil + forme + météo + reco)."""
+    cols = st.columns(2)
+    cols[0].metric("Distance", f"{result.profile.distance_km:.2f} km")
+    cols[1].metric("Dénivelé +", f"{result.profile.elevation_gain_m:.0f} m")
+    _render_elevation_note(result.profile)
+    _render_map(result.profile.route)
+    _render_elevation_profile(result.profile)
+    _render_athlete(result.athlete)
+    _render_weather(result.weather)
+    if result.recommended is not None:
+        _render_recommended(result.recommended)
+
+
+def _reset_result() -> None:
+    st.session_state.pop("result", None)
+
+
 st.set_page_config(page_title="PaceRunner", page_icon="🏃", layout="wide")
 
 st.title("🏃 PaceRunner")
@@ -341,6 +377,9 @@ with st.sidebar:
         )
 
 
+if "result" in st.session_state:
+    st.sidebar.button("🔄 Réinitialiser l'affichage", on_click=_reset_result)
+
 if generate_clicked or compare_clicked:
     if gpx_file is None:
         st.warning("Merci de fournir un fichier GPX.")
@@ -359,9 +398,10 @@ if generate_clicked or compare_clicked:
             except BackendError as exc:
                 st.error(str(exc))
                 st.stop()
+            st.session_state["result"] = _CompareResult(comp)
             _render_comparison(comp)
         else:
-            # « Générer » : profil + reco DeepSeek (tranches) + comparaison baseline/DeepSeek CoT.
+            # « Générer » : profil → forme + météo (dès prêts) → stratégie. Affichage progressif.
             try:
                 with st.spinner("📍 Analyse du parcours…"):
                     profile = fetch_profile(gpx_bytes=gpx_bytes, filename=filename)
@@ -376,17 +416,18 @@ if generate_clicked or compare_clicked:
             _render_map(profile.route)
             _render_elevation_profile(profile)
 
-            # Contexte (forme COROS + météo) affiché dès que prêt, AVANT la longue génération.
+            athlete = None
+            weather = None
             try:
                 with st.spinner("🏃 Forme COROS + météo jour J…"):
-                    _render_athlete(fetch_athlete())
-                    _render_weather(
-                        fetch_weather(
-                            lat=profile.start_lat,
-                            lon=profile.start_lon,
-                            race_datetime_iso=race_iso,
-                        )
+                    athlete = fetch_athlete()
+                    weather = fetch_weather(
+                        lat=profile.start_lat,
+                        lon=profile.start_lon,
+                        race_datetime_iso=race_iso,
                     )
+                _render_athlete(athlete)
+                _render_weather(weather)
             except BackendError as exc:
                 st.warning(f"Contexte indisponible ({exc}).")
 
@@ -399,7 +440,12 @@ if generate_clicked or compare_clicked:
                 st.error(str(exc))
                 st.stop()
 
+            st.session_state["result"] = _GenResult(profile, athlete, weather, comp.recommended)
             if comp.recommended is not None:
                 _render_recommended(comp.recommended)
+elif isinstance(st.session_state.get("result"), _GenResult):
+    _render_generate(st.session_state["result"])
+elif isinstance(st.session_state.get("result"), _CompareResult):
+    _render_comparison(st.session_state["result"].comp)
 else:
     st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer » ou « Comparer ».")
