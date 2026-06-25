@@ -1,8 +1,9 @@
 """Front Streamlit — page « Génération de stratégie ».
 
-Le bouton « Générer » affiche d'abord le contexte du parcours (distance, D+, carte, profil de
-dénivelé), puis lance la **comparaison** : baseline déterministe + variantes LLM (moteur × prompt
-autonome/CoT), avec la forme COROS et la météo jour J (cf. #74).
+Deux actions : **« Générer »** affiche le contexte (parcours, forme COROS, météo) puis la
+**stratégie recommandée** (baseline calibrée + DeepSeek ancré : tactique bornée + narratif par
+tranche) ; **« Comparer »** affiche le banc d'essai #74 (baseline vs llama3.1:8b autonome vs
+DeepSeek CoT). Le résultat est mémorisé en `session_state` (persiste entre les pages).
 """
 
 from datetime import date, datetime

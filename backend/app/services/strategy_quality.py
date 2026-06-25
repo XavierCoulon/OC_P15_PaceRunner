@@ -1,8 +1,9 @@
-"""Métrique qualité d'un run de génération + journalisation (M4).
+"""Métrique qualité d'un run de génération (M4).
 
 Capture, pour chaque stratégie produite : l'origine, si la sortie LLM a passé les
-garde-fous, l'écart à la baseline et la latence. Journalisé en logs structurés pour
-l'instant ; la persistance en base (Neon) et l'agrégation `/stats` viendront en phase N.
+garde-fous, l'écart à la baseline et la latence. Journalisé en logs structurés ici ; la
+**persistance en base** (Neon `prediction_runs`) et l'agrégation `/stats` sont assurées par le
+`PredictionRepository` (cf. `strategy_service._journal`).
 """
 
 import logging

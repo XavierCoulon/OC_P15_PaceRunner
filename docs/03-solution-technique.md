@@ -143,3 +143,46 @@ passent **après** la validation locale.
 
 > Reste cohérent avec ADR-3 (même modèle 8B, garde-fous + fallback baseline). HF devient une **cible de
 > déploiement** plutôt qu'une dépendance de développement.
+
+---
+
+## ADR-5 — Calibration personnalisée + DeepSeek-V3 en production (évolution)
+
+- **Statut** : Accepté (supersede partiellement ADR-3/ADR-4 sur le modèle de prod)
+- **Compétence** : C3
+
+### Contexte
+
+Deux constats après les premières versions : (1) la baseline ancrée sur la seule allure seuil COROS
+restait générique (facteurs de distance/pente/chaleur issus de la littérature) ; (2) le 8B en mode
+autonome décrochait sur terrain raide. On dispose par ailleurs d'un **historique COROS riche**
+(≈ 1300 courses).
+
+### Décision
+
+1. **Calibration personnalisée (#76)** : on ingère l'historique COROS (`querySportRecords`, batch +
+   incrémental) + la météo historique ERA5, et on en dérive un **profil de calibration** persisté
+   (`coros_activities`, `calibration_snapshots`) : allures de référence par distance (meilleurs
+   efforts réels), **sensibilité chaleur** (résidu d'allure vs température), tendance de forme (ACWR).
+   La baseline reste ancrée sur le **seuil COROS** mais ses multiplicateurs deviennent **perso**.
+2. **Rôles LLM** : en production, le LLM est **ancré** sur la baseline calibrée → tactique bornée
+   (±20 %, negative split) + **narratif par tranche** (découpage déterministe côté serveur,
+   anti-hallucination). La physique au km reste déterministe.
+3. **Modèle de production = `deepseek-ai/DeepSeek-V3-0324`** (HF Inference) : nettement plus fiable
+   que le 8B sur la sortie JSON et le raisonnement tactique. Le **8B local (Ollama)** reste, mais
+   comme **bras de comparaison autonome** dans le banc d'essai (#74), aux côtés de DeepSeek CoT.
+4. **Deux flux front** : « **Générer** » (production, reco ancrée DeepSeek, journalisée) et
+   « **Comparer** » (banc d'essai brut, non journalisé).
+
+### Conséquences
+
+**Positives**
+- Allures **réalistes et personnelles** (ex. facteurs distance ×1.17–1.44 mesurés vs génériques) ;
+  robustesse accrue (filet : si l'allure seuil du jour manque, on reprend l'ancre de la calibration).
+- Séparation nette **physique (déterministe) / tactique + narratif (LLM)** → plus testable.
+- La calibration est **précalculée** : zéro appel COROS sur le chemin `/strategy/generate`.
+
+**Négatives / limites**
+- Dépendance à HF Inference pour la prod (crédits gratuits suffisants à l'échelle démo).
+- Axe D (courbe de pente perso via flux détaillés) **reporté** : trop peu de trails en base.
+- FC moyenne et `resting_hr` collectés mais **non encore exploités**.

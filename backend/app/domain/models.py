@@ -84,7 +84,7 @@ class AthleteProfile(_Frozen):
 
     threshold_pace_sec_per_km: float | None = Field(default=None, gt=0)
     vo2max: float | None = Field(default=None, gt=0)
-    resting_hr: int | None = Field(default=None, gt=0)
+    resting_hr: int | None = Field(default=None, gt=0)  # réservé — non peuplé/exploité à ce jour
     recovery_pct: float | None = Field(default=None, ge=0, le=100)
     recovery_status: str | None = Field(default=None, description="Niveau de récupération (texte).")
     weight_kg: float | None = Field(default=None, gt=0, description="Poids (grade-adjusted pace).")
@@ -128,17 +128,17 @@ class CalibrationProfile(_Frozen):
     anchor_pace_sec_per_km: float | None = Field(
         default=None, gt=0, description="Allure seuil COROS au calcul (ancre des facteurs)."
     )
-    # Axe A — décroissance allure↔distance (remplace les facteurs littéraires) & relation FC↔allure.
+    # Axe A — décroissance allure↔distance (remplace les facteurs littéraires).
     distance_factors: list[tuple[float, float]] | None = Field(
         default=None, description="Paliers (distance_max_km, facteur) calibrés sur efforts réels."
     )
-    hr_pace_slope: float | None = None
+    hr_pace_slope: float | None = None  # réservé (relation FC↔allure) — non calculé à ce jour
     # Axe B — sensibilité chaleur personnelle.
     heat_coeff_per_deg: float | None = Field(default=None, ge=0)
     heat_threshold_c: float | None = None
     # Axe C — tendance de forme.
     fitness_trend: float | None = None
-    # Axe D — courbe allure-pente personnelle.
+    # Axe D — courbe allure-pente personnelle : réservé, non calculé (trop peu de trails, #80).
     grade_curve: list[float] | None = None
 
 

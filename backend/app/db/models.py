@@ -77,7 +77,7 @@ class CorosActivity(SQLModel, table=True):
     location: str | None = None
     elevation_gain_m: float | None = None
 
-    # Flux détaillés (axe D) — récupérés à la demande puis binnés.
+    # Flux détaillés (axe D) — réservé : jamais renseigné à ce jour (axe D reporté, #80).
     streams_fetched: bool = Field(default=False)
     # Météo historique jointe (axe B) — remplie lors de l'ingestion météo.
     weather_temperature_c: float | None = None
