@@ -349,9 +349,9 @@ if submitted:
             st.error(str(exc))
             st.stop()
 
-        _render_recommended(comp.recommended)
         _render_athlete(comp.athlete)
         _render_weather(comp.weather)
+        _render_recommended(comp.recommended)
         _render_comparison(comp)
 else:
     st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer la stratégie ».")
