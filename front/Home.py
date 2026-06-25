@@ -16,8 +16,10 @@ import streamlit as st
 from api_client import (
     BackendError,
     compare_strategies,
+    fetch_athlete,
     fetch_calibration_status,
     fetch_profile,
+    fetch_weather,
     generate_plan,
 )
 from app.config import get_settings
@@ -353,8 +355,22 @@ if generate_clicked or compare_clicked:
             _render_map(profile.route)
             _render_elevation_profile(profile)
 
+            # Contexte (forme COROS + météo) affiché dès que prêt, AVANT la longue génération.
             try:
-                with st.spinner("🎯 Stratégie recommandée (DeepSeek)…"):
+                with st.spinner("🏃 Forme COROS + météo jour J…"):
+                    _render_athlete(fetch_athlete())
+                    _render_weather(
+                        fetch_weather(
+                            lat=profile.start_lat,
+                            lon=profile.start_lon,
+                            race_datetime_iso=race_iso,
+                        )
+                    )
+            except BackendError as exc:
+                st.warning(f"Contexte indisponible ({exc}).")
+
+            try:
+                with st.spinner("🎯 Stratégie recommandée (DeepSeek), ~10 s…"):
                     comp = generate_plan(
                         gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
                     )
@@ -362,8 +378,6 @@ if generate_clicked or compare_clicked:
                 st.error(str(exc))
                 st.stop()
 
-            _render_athlete(comp.athlete)
-            _render_weather(comp.weather)
             if comp.recommended is not None:
                 _render_recommended(comp.recommended)
 else:
