@@ -232,8 +232,8 @@ def _render_comparison(comp: StrategyComparison) -> None:
     st.info(
         "🔬 **Banc d'essai (#74)** — llama3.1:8b et DeepSeek conçoivent en mode **autonome brut : "
         "sans la baseline, sans garde-fou, sans repli**. Sur terrain raide, ces variantes "
-        "sous-estiment le coût des fortes pentes et deviennent **trop optimistes** (surtout le 8b). "
-        "Pour ta stratégie fiable, utilise « **Générer** » (DeepSeek ancré sur la baseline)."
+        "sous-estiment le coût des fortes pentes et deviennent **trop optimistes** (surtout le "
+        "8b). Pour ta stratégie fiable, utilise « **Générer** » (DeepSeek ancré sur la baseline)."
     )
 
     # (titre, stratégie | None, erreur | None) — baseline = référence déterministe.
