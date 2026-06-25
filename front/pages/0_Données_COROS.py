@@ -63,7 +63,7 @@ else:
         else "—"
     )
     cols[1].metric("Période couverte", period)
-    cols[2].metric("Échantillons trail", status.trail_sample_count)
+    cols[2].metric("Courses trail", status.trail_count)
     cols[3].metric(
         "Dernière synchro",
         f"{status.last_synced_at:%d/%m %H:%M}" if status.last_synced_at else "—",

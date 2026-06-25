@@ -56,7 +56,7 @@ class CalibrationStatus(BaseModel):
     first_activity_date: date | None
     last_activity_date: date | None
     last_synced_at: datetime | None
-    trail_sample_count: int
+    trail_count: int
     calibration_computed_at: datetime | None
     calibration: CalibrationProfile | None = None
 
