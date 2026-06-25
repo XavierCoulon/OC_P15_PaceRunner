@@ -67,9 +67,18 @@ def _distance_factors(
             calibrated = True
         else:
             factor = generic
-        factors.append((upper, round(factor, 4)))
+        factors.append((upper, factor))
         lower = upper
-    return factors if calibrated else None
+    if not calibrated:
+        return None
+    # Garde-fou : l'allure de course ne doit pas accélérer quand la distance augmente
+    # (données longue distance souvent rares → on borne par le palier précédent).
+    monotonic: list[tuple[float, float]] = []
+    previous = 0.0
+    for upper, factor in factors:
+        previous = max(factor, previous)
+        monotonic.append((upper, round(previous, 4)))
+    return monotonic
 
 
 def _pace_factor(distance_km: float, bins: tuple[tuple[float, float], ...]) -> float:
@@ -161,6 +170,7 @@ def compute_calibration(
     return CalibrationProfile(
         computed_at=_utcnow_naive(),
         sample_count=len(activities),
+        anchor_pace_sec_per_km=threshold_pace_sec_per_km,
         distance_factors=distance_factors,
         heat_coeff_per_deg=heat_coeff,
         heat_threshold_c=_HEAT_THRESHOLD_C if heat_coeff is not None else None,

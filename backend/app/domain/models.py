@@ -125,6 +125,9 @@ class CalibrationProfile(_Frozen):
 
     computed_at: datetime | None = None
     sample_count: int = Field(default=0, ge=0, description="Nb de courses ayant nourri le calcul.")
+    anchor_pace_sec_per_km: float | None = Field(
+        default=None, gt=0, description="Allure seuil COROS au calcul (ancre des facteurs)."
+    )
     # Axe A — décroissance allure↔distance (remplace les facteurs littéraires) & relation FC↔allure.
     distance_factors: list[tuple[float, float]] | None = Field(
         default=None, description="Paliers (distance_max_km, facteur) calibrés sur efforts réels."

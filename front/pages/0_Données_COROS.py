@@ -5,9 +5,18 @@ qui nourrit la calibration. Tant qu'aucune donnée n'est présente, la générat
 (page d'accueil) est bloquée. Affiche une visualisation chiffrée de ce qui est en base.
 """
 
+import pandas as pd
 import streamlit as st
 
 from api_client import BackendError, fetch_calibration_status, refresh_calibration
+
+_DIST_LABEL = {5.0: "≤ 5 km", 10.0: "≤ 10 km", 21.1: "Semi", 42.2: "Marathon", 9999.0: "Ultra"}
+
+
+def _fmt_pace(seconds_per_km: float) -> str:
+    minutes, secs = divmod(round(seconds_per_km), 60)
+    return f"{minutes}:{secs:02d}"
+
 
 st.set_page_config(page_title="Données COROS — PaceRunner", page_icon="📥", layout="wide")
 
@@ -62,4 +71,45 @@ else:
     if status.calibration_computed_at:
         st.caption(f"🧮 Calibration calculée le {status.calibration_computed_at:%d/%m/%Y %H:%M}.")
     else:
-        st.caption("🧮 Calibration pas encore calculée (à venir : personnalisation des allures).")
+        st.caption("🧮 Calibration pas encore calculée — clique sur « Rafraîchir » ci-dessus.")
+
+cal = status.calibration
+if cal is not None and cal.computed_at is not None:
+    st.subheader("🎯 Ce qui personnalise ta stratégie")
+    st.caption(f"Calculé sur {cal.sample_count} courses analysées.")
+
+    if cal.anchor_pace_sec_per_km and cal.distance_factors:
+        st.markdown(
+            f"**Allures de référence par distance** "
+            f"(ancrées sur ton allure seuil COROS {_fmt_pace(cal.anchor_pace_sec_per_km)} /km, "
+            f"calibrées sur tes meilleurs efforts) :"
+        )
+        rows = [
+            {
+                "Distance": _DIST_LABEL.get(upper, f"≤ {upper:.0f} km"),
+                "Allure de référence": f"{_fmt_pace(cal.anchor_pace_sec_per_km * factor)} /km",
+                "vs seuil": f"{(factor - 1) * 100:+.0f} %",
+            }
+            for upper, factor in cal.distance_factors
+        ]
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.caption("Allures de référence : données insuffisantes → facteurs génériques.")
+
+    cols = st.columns(2)
+    heat = (
+        f"+{cal.heat_coeff_per_deg * 100:.1f} %/°C au-delà de {cal.heat_threshold_c:.0f} °C"
+        if cal.heat_coeff_per_deg is not None
+        else "générique (peu de jours chauds)"
+    )
+    cols[0].metric("🌡️ Sensibilité à la chaleur", heat)
+    trend = cal.fitness_trend
+    if trend is None:
+        trend_txt = "—"
+    elif trend >= 1.1:
+        trend_txt = f"{trend:.2f} ↗ en hausse"
+    elif trend <= 0.9:
+        trend_txt = f"{trend:.2f} ↘ allégée"
+    else:
+        trend_txt = f"{trend:.2f} → stable"
+    cols[1].metric("📈 Charge récente (ACWR)", trend_txt)

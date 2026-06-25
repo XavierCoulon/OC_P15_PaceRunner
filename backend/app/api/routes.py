@@ -428,9 +428,12 @@ async def get_stats(
 )
 async def get_calibration(
     repository: Annotated[ActivityRepository, Depends(get_activity_repository)],
+    calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
 ) -> CalibrationStatus:
-    """État des données COROS en base (prérequis de la génération, bloc 1 du front)."""
-    return await repository.status()
+    """État des données COROS + profil de calibration utilisé par la stratégie (bloc 1 du front)."""
+    status_ = await repository.status()
+    status_.calibration = await calibration_store.load()
+    return status_
 
 
 @router.post(
@@ -454,9 +457,11 @@ async def refresh_calibration(
     service = CalibrationService(
         provider, repository, athlete_provider, calibration_store, weather_provider
     )
-    ingested, _profile = await service.refresh(incremental=incremental)
+    ingested, profile = await service.refresh(incremental=incremental)
+    status_ = await repository.status()
+    status_.calibration = profile
     return CalibrationRefreshResult(
         fetched=ingested.fetched,
         inserted=ingested.inserted,
-        status=await repository.status(),
+        status=status_,
     )

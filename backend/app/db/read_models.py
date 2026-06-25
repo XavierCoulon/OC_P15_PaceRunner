@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.domain.models import CalibrationProfile
+
 
 class RunSummary(BaseModel):
     """Ligne d'historique (vue liste)."""
@@ -55,6 +57,7 @@ class CalibrationStatus(BaseModel):
     last_synced_at: datetime | None
     trail_sample_count: int
     calibration_computed_at: datetime | None
+    calibration: CalibrationProfile | None = None
 
 
 class CalibrationRefreshResult(BaseModel):
