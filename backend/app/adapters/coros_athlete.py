@@ -54,8 +54,15 @@ class CorosAthleteProvider:
         )
 
     async def _safe_call(self, tool: str) -> str:
-        """Appelle un outil COROS ; renvoie une chaîne vide en cas d'échec (dégradation)."""
-        try:
-            return await self._client.call_tool(tool, {})
-        except Exception:
-            return ""
+        """Appelle un outil COROS avec **un retry** (COROS flaky : timeouts/sessions en rafale).
+
+        Renvoie une chaîne vide après échec (dégradation gracieuse).
+        """
+        for _ in range(2):
+            try:
+                text = await self._client.call_tool(tool, {})
+                if text:
+                    return text
+            except Exception:
+                continue
+        return ""

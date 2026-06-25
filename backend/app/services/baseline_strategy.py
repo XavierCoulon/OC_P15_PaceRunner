@@ -170,12 +170,17 @@ def build_baseline_strategy(
     vient des **meilleurs efforts réels** du coureur au lieu des facteurs génériques ; l'allure
     seuil COROS reste l'ancre.
     """
-    threshold = _DEFAULT_THRESHOLD_PACE
     recovery: float | None = None
+    threshold: float | None = None
     if athlete is not None:
-        if athlete.threshold_pace_sec_per_km is not None:
-            threshold = athlete.threshold_pace_sec_per_km
+        threshold = athlete.threshold_pace_sec_per_km
         recovery = athlete.recovery_pct
+    # Filet : si l'allure seuil du jour est indisponible (COROS flaky), on reprend l'ancre
+    # stockée dans la calibration plutôt que le défaut générique.
+    if threshold is None and calibration is not None:
+        threshold = calibration.anchor_pace_sec_per_km
+    if threshold is None:
+        threshold = _DEFAULT_THRESHOLD_PACE
 
     bins = _distance_bins(calibration)
     base_pace = threshold * _race_pace_factor(course.distance_km, bins)

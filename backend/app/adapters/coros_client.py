@@ -47,7 +47,7 @@ class CorosClient:
         self._seed_refresh_token = (
             config.coros_refresh_token.get_secret_value() if config.coros_refresh_token else None
         )
-        self._timeout = config.http_timeout_seconds
+        self._timeout = config.coros_timeout_seconds
         self._store: TokenStore = token_store or FileTokenStore(Path(config.coros_token_file))
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:

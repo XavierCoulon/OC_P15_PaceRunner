@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     open_meteo_air_quality_url: str = "https://air-quality-api.open-meteo.com/v1/air-quality"
     open_meteo_archive_url: str = "https://archive-api.open-meteo.com/v1/archive"
     http_timeout_seconds: float = 10.0
+    # COROS MCP fait plusieurs allers-retours par appel (handshake + tool) → marge plus large.
+    coros_timeout_seconds: float = 20.0
 
     # LLM — API OpenAI-compatible (Ollama local par défaut ; HF par config, cf. ADR-4)
     llm_base_url: str = "http://localhost:11434/v1"
