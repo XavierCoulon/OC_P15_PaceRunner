@@ -64,13 +64,13 @@ def generate_strategy(
         raise BackendError("Réponse du backend invalide.") from exc
 
 
-def compare_strategies(
-    *, gpx_bytes: bytes, filename: str, race_datetime_iso: str
+def _post_comparison(
+    path: str, *, gpx_bytes: bytes, filename: str, race_datetime_iso: str
 ) -> StrategyComparison:
-    """Compare baseline / LLM ancré / LLM autonome brut (`POST /strategy/compare`, cf. #74)."""
+    """POST multipart renvoyant un `StrategyComparison` (endpoints generate / compare)."""
     settings = get_settings()
     token = settings.api_token.get_secret_value() if settings.api_token else ""
-    url = f"{settings.backend_url}/strategy/compare"
+    url = f"{settings.backend_url}{path}"
     files = {"gpx": (filename, gpx_bytes, "application/gpx+xml")}
     data = {"race_datetime": race_datetime_iso}
     headers = {"Authorization": f"Bearer {token}"}
@@ -89,7 +89,29 @@ def compare_strategies(
     try:
         return StrategyComparison.model_validate(response.json())
     except ValueError as exc:
-        raise BackendError("Réponse de comparaison invalide.") from exc
+        raise BackendError("Réponse invalide.") from exc
+
+
+def generate_plan(*, gpx_bytes: bytes, filename: str, race_datetime_iso: str) -> StrategyComparison:
+    """« Générer » : reco ancrée DeepSeek + comparaison baseline vs DeepSeek CoT."""
+    return _post_comparison(
+        "/strategy/generate",
+        gpx_bytes=gpx_bytes,
+        filename=filename,
+        race_datetime_iso=race_datetime_iso,
+    )
+
+
+def compare_strategies(
+    *, gpx_bytes: bytes, filename: str, race_datetime_iso: str
+) -> StrategyComparison:
+    """« Comparer » : baseline vs llama3.1:8b autonome vs DeepSeek CoT (#74)."""
+    return _post_comparison(
+        "/strategy/compare",
+        gpx_bytes=gpx_bytes,
+        filename=filename,
+        race_datetime_iso=race_datetime_iso,
+    )
 
 
 def fetch_profile(*, gpx_bytes: bytes, filename: str) -> CourseSummary:

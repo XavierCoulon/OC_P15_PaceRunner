@@ -273,5 +273,5 @@ class StrategyComparison(_Frozen):
     athlete: AthleteProfile | None = None
     weather: WeatherContext | None = None
     baseline: PaceStrategy
-    recommended: PaceStrategy
+    recommended: PaceStrategy | None = None
     variants: list[ComparedStrategy] = Field(default_factory=list)

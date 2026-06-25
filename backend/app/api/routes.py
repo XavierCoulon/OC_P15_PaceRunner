@@ -58,7 +58,12 @@ from app.domain.ports import (
     WeatherProvider,
 )
 from app.services.calibration_service import CalibrationService
-from app.services.strategy_service import Engine, build_comparison, build_strategy
+from app.services.strategy_service import (
+    ComparisonResult,
+    Engine,
+    build_comparison,
+    build_strategy,
+)
 
 router = APIRouter()
 
@@ -124,8 +129,8 @@ def get_strategy_generator() -> StrategyGenerator:
     return OpenAICompatibleStrategyGenerator()
 
 
-def get_hf_strategy_generator() -> StrategyGenerator:
-    """Second moteur (HF Inference) pour la comparaison ; clé = `hf_token`."""
+def get_deepseek_generator() -> StrategyGenerator:
+    """Moteur DeepSeek via HF Inference (reco ancrée + variante CoT) ; clé = `hf_token`."""
     settings = get_settings()
     return OpenAICompatibleStrategyGenerator(
         settings,
@@ -133,6 +138,12 @@ def get_hf_strategy_generator() -> StrategyGenerator:
         model=settings.compare_hf_model,
         api_key=settings.hf_token.get_secret_value() if settings.hf_token else None,
     )
+
+
+def get_llama_generator() -> StrategyGenerator:
+    """Moteur Ollama llama3.1:8b pour la variante autonome de comparaison."""
+    settings = get_settings()
+    return OpenAICompatibleStrategyGenerator(settings, model=settings.compare_local_model)
 
 
 def get_prediction_repository() -> PredictionRepository:
@@ -232,51 +243,10 @@ async def create_strategy(
     )
 
 
-@router.post(
-    "/strategy/compare",
-    response_model=StrategyComparison,
-    dependencies=[Depends(require_api_token)],
-)
-async def compare_strategies(
-    gpx: Annotated[UploadFile, File(description="Fichier GPX du parcours.")],
-    race_datetime: Annotated[datetime, Form(description="Date/heure de la course (ISO 8601).")],
-    elevation: Annotated[ElevationProvider, Depends(get_elevation_provider)],
-    athlete_provider: Annotated[AthleteProvider, Depends(get_athlete_provider)],
-    weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
-    local_generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
-    hf_generator: Annotated[StrategyGenerator, Depends(get_hf_strategy_generator)],
-    calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
-) -> StrategyComparison:
-    """Compare la baseline à 3 variantes moteur × prompt (génération brute, #74).
+_DEEPSEEK_LABEL = "DeepSeek-V3"
 
-    Variantes : modèle local en autonome, modèle local en CoT, modèle HF en CoT.
-    """
-    settings = get_settings()
-    local, hf = settings.llm_model, settings.compare_hf_model
-    engines = [
-        Engine(f"{local} · autonome", local, local_generator, "autonomous"),
-        Engine(f"{local} · CoT", local, local_generator, "cot"),
-        Engine(f"{hf} · CoT", hf, hf_generator, "cot"),
-    ]
-    content = await _read_gpx(gpx)
-    race = RaceContext(race_datetime=race_datetime)
-    try:
-        result = await build_comparison(
-            content,
-            race,
-            elevation=elevation,
-            athlete_provider=athlete_provider,
-            weather=weather,
-            engines=engines,
-            recommended_generator=local_generator,
-            calibration=await calibration_store.load(),
-        )
-    except GpxParseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        ) from exc
 
+def _to_comparison(result: ComparisonResult) -> StrategyComparison:
     return StrategyComparison(
         course=_course_summary(result.course),
         athlete=result.athlete,
@@ -290,6 +260,89 @@ async def compare_strategies(
             for e in result.engines
         ],
     )
+
+
+@router.post(
+    "/strategy/generate",
+    response_model=StrategyComparison,
+    dependencies=[Depends(require_api_token)],
+)
+async def generate_recommended(
+    gpx: Annotated[UploadFile, File(description="Fichier GPX du parcours.")],
+    race_datetime: Annotated[datetime, Form(description="Date/heure de la course (ISO 8601).")],
+    elevation: Annotated[ElevationProvider, Depends(get_elevation_provider)],
+    athlete_provider: Annotated[AthleteProvider, Depends(get_athlete_provider)],
+    weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
+    deepseek: Annotated[StrategyGenerator, Depends(get_deepseek_generator)],
+    calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
+) -> StrategyComparison:
+    """« Générer » : reco ancrée (baseline + DeepSeek, tactique + narratif) + comparaison
+    baseline vs DeepSeek CoT."""
+    settings = get_settings()
+    engines = [Engine(f"{_DEEPSEEK_LABEL} · CoT", settings.compare_hf_model, deepseek, "cot")]
+    content = await _read_gpx(gpx)
+    race = RaceContext(race_datetime=race_datetime)
+    try:
+        result = await build_comparison(
+            content,
+            race,
+            elevation=elevation,
+            athlete_provider=athlete_provider,
+            weather=weather,
+            engines=engines,
+            recommended_generator=deepseek,
+            calibration=await calibration_store.load(),
+        )
+    except GpxParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    return _to_comparison(result)
+
+
+@router.post(
+    "/strategy/compare",
+    response_model=StrategyComparison,
+    dependencies=[Depends(require_api_token)],
+)
+async def compare_strategies(
+    gpx: Annotated[UploadFile, File(description="Fichier GPX du parcours.")],
+    race_datetime: Annotated[datetime, Form(description="Date/heure de la course (ISO 8601).")],
+    elevation: Annotated[ElevationProvider, Depends(get_elevation_provider)],
+    athlete_provider: Annotated[AthleteProvider, Depends(get_athlete_provider)],
+    weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
+    llama: Annotated[StrategyGenerator, Depends(get_llama_generator)],
+    deepseek: Annotated[StrategyGenerator, Depends(get_deepseek_generator)],
+    calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
+) -> StrategyComparison:
+    """« Comparer » : comparatif brut baseline vs llama3.1:8b autonome vs DeepSeek CoT (#74)."""
+    settings = get_settings()
+    engines = [
+        Engine(
+            f"{settings.compare_local_model} · autonome",
+            settings.compare_local_model,
+            llama,
+            "autonomous",
+        ),
+        Engine(f"{_DEEPSEEK_LABEL} · CoT", settings.compare_hf_model, deepseek, "cot"),
+    ]
+    content = await _read_gpx(gpx)
+    race = RaceContext(race_datetime=race_datetime)
+    try:
+        result = await build_comparison(
+            content,
+            race,
+            elevation=elevation,
+            athlete_provider=athlete_provider,
+            weather=weather,
+            engines=engines,
+            calibration=await calibration_store.load(),
+        )
+    except GpxParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    return _to_comparison(result)
 
 
 @router.post(

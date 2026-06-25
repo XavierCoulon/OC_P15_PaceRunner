@@ -18,6 +18,7 @@ from api_client import (
     compare_strategies,
     fetch_calibration_status,
     fetch_profile,
+    generate_plan,
 )
 from app.config import get_settings
 from app.domain.models import (
@@ -307,16 +308,17 @@ with st.sidebar:
         )
         race_time = col_time.time_input("Heure de départ", value=dtime(9, 0))
 
-        submitted = st.form_submit_button(
+        generate_clicked = st.form_submit_button(
             "Générer la stratégie", type="primary", disabled=not data_ready
         )
+        compare_clicked = st.form_submit_button("Comparer les moteurs", disabled=not data_ready)
         st.caption(
-            "Génère et compare : baseline + local (autonome) + local (CoT) + HF (CoT) — "
-            "3 appels LLM, comptez ~1-2 min."
+            "**Générer** : baseline calibrée + DeepSeek (tranches + commentaires). "
+            "**Comparer** : baseline vs llama3.1:8b autonome vs DeepSeek CoT (courbe + tableau)."
         )
 
 
-if submitted:
+if generate_clicked or compare_clicked:
     if gpx_file is None:
         st.warning("Merci de fournir un fichier GPX.")
     elif isinstance(race_date, date) and isinstance(race_time, dtime):
@@ -324,34 +326,46 @@ if submitted:
         filename = gpx_file.name
         race_iso = datetime.combine(race_date, race_time).isoformat()
 
-        # 1) Profil + carte (rapide) — affiché dès que prêt.
-        try:
-            with st.spinner("📍 Analyse du parcours…"):
-                profile = fetch_profile(gpx_bytes=gpx_bytes, filename=filename)
-        except BackendError as exc:
-            st.error(str(exc))
-            st.stop()
+        if compare_clicked:
+            # « Comparer » : uniquement le comparatif (courbe + tableau).
+            try:
+                with st.spinner("⚖️ Comparaison baseline vs llama3.1:8b vs DeepSeek…"):
+                    comp = compare_strategies(
+                        gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
+                    )
+            except BackendError as exc:
+                st.error(str(exc))
+                st.stop()
+            _render_comparison(comp)
+        else:
+            # « Générer » : profil + reco DeepSeek (tranches) + comparaison baseline/DeepSeek CoT.
+            try:
+                with st.spinner("📍 Analyse du parcours…"):
+                    profile = fetch_profile(gpx_bytes=gpx_bytes, filename=filename)
+            except BackendError as exc:
+                st.error(str(exc))
+                st.stop()
 
-        cols = st.columns(2)
-        cols[0].metric("Distance", f"{profile.distance_km:.2f} km")
-        cols[1].metric("Dénivelé +", f"{profile.elevation_gain_m:.0f} m")
-        _render_elevation_note(profile)
-        _render_map(profile.route)
-        _render_elevation_profile(profile)
+            cols = st.columns(2)
+            cols[0].metric("Distance", f"{profile.distance_km:.2f} km")
+            cols[1].metric("Dénivelé +", f"{profile.elevation_gain_m:.0f} m")
+            _render_elevation_note(profile)
+            _render_map(profile.route)
+            _render_elevation_profile(profile)
 
-        # 2) Reco ancrée (production) + comparaison (baseline + 3 variantes LLM) — le plus long.
-        try:
-            with st.spinner("🎯 Stratégie recommandée + comparaison des moteurs…"):
-                comp = compare_strategies(
-                    gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
-                )
-        except BackendError as exc:
-            st.error(str(exc))
-            st.stop()
+            try:
+                with st.spinner("🎯 Stratégie recommandée (DeepSeek) + comparaison…"):
+                    comp = generate_plan(
+                        gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
+                    )
+            except BackendError as exc:
+                st.error(str(exc))
+                st.stop()
 
-        _render_athlete(comp.athlete)
-        _render_weather(comp.weather)
-        _render_recommended(comp.recommended)
-        _render_comparison(comp)
+            _render_athlete(comp.athlete)
+            _render_weather(comp.weather)
+            if comp.recommended is not None:
+                _render_recommended(comp.recommended)
+            _render_comparison(comp)
 else:
-    st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer la stratégie ».")
+    st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer » ou « Comparer ».")

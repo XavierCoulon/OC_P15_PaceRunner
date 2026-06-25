@@ -9,12 +9,15 @@ from fastapi.testclient import TestClient
 from app.adapters.coros_mock import CorosMockAthleteProvider
 from app.api.routes import (
     get_athlete_provider,
+    get_calibration_store,
+    get_deepseek_generator,
     get_elevation_provider,
-    get_hf_strategy_generator,
+    get_llama_generator,
     get_strategy_generator,
     get_weather_provider,
 )
 from app.config import get_settings
+from app.db.calibration import NullCalibrationStore
 from app.domain.models import (
     AthleteProfile,
     CalibrationProfile,
@@ -99,6 +102,9 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     app.dependency_overrides[get_athlete_provider] = CorosMockAthleteProvider
     app.dependency_overrides[get_weather_provider] = _FakeWeather
     app.dependency_overrides[get_strategy_generator] = _FailingGenerator
+    app.dependency_overrides[get_llama_generator] = _FailingGenerator
+    app.dependency_overrides[get_deepseek_generator] = _FailingGenerator
+    app.dependency_overrides[get_calibration_store] = NullCalibrationStore
     yield TestClient(app)
     app.dependency_overrides.clear()
     get_settings.cache_clear()
@@ -174,9 +180,9 @@ def test_profile_rejects_invalid_gpx(client: TestClient) -> None:
     assert response.status_code == 422
 
 
-def test_compare_returns_baseline_and_variants(client: TestClient) -> None:
-    app.dependency_overrides[get_strategy_generator] = _ValidGenerator
-    app.dependency_overrides[get_hf_strategy_generator] = _ValidGenerator
+def test_compare_returns_baseline_and_two_variants(client: TestClient) -> None:
+    app.dependency_overrides[get_llama_generator] = _ValidGenerator
+    app.dependency_overrides[get_deepseek_generator] = _ValidGenerator
     response = client.post(
         "/strategy/compare",
         headers=_AUTH,
@@ -186,21 +192,34 @@ def test_compare_returns_baseline_and_variants(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["baseline"]["generated_by"] == "baseline"
-    # Stratégie recommandée (ancrée, production) présente en plus de la comparaison.
-    assert body["recommended"]["generated_by"] in ("llm", "baseline")
-    assert len(body["recommended"]["km_plans"]) == len(body["course"]["segments"])
-    # 3 variantes : local autonome, local CoT, HF CoT.
+    # « Comparer » : pas de reco ancrée, seulement le comparatif.
+    assert body["recommended"] is None
+    # 2 variantes : llama3.1:8b autonome, DeepSeek CoT.
     variants = body["variants"]
-    assert [v["mode"] for v in variants] == ["autonomous", "cot", "cot"]
+    assert [v["mode"] for v in variants] == ["autonomous", "cot"]
     for v in variants:
         assert v["error"] is None
         assert v["strategy"]["generated_by"] == f"llm_{v['mode']}"
-        assert len(v["strategy"]["km_plans"]) == len(body["course"]["segments"])
+
+
+def test_generate_returns_recommended_and_deepseek_cot(client: TestClient) -> None:
+    app.dependency_overrides[get_deepseek_generator] = _ValidGenerator
+    response = client.post(
+        "/strategy/generate",
+        headers=_AUTH,
+        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
+        data={"race_datetime": "2026-09-01T09:00:00"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    # Reco ancrée (production) présente + une seule variante DeepSeek CoT.
+    assert body["recommended"]["generated_by"] in ("llm", "baseline")
+    assert len(body["recommended"]["km_plans"]) == len(body["course"]["segments"])
+    assert [v["mode"] for v in body["variants"]] == ["cot"]
 
 
 def test_compare_reports_variant_failure(client: TestClient) -> None:
-    # Variantes en échec → chacune porte une erreur, baseline toujours présente.
-    app.dependency_overrides[get_hf_strategy_generator] = _FailingGenerator
+    # Générateurs en échec (fixture) → chaque variante porte une erreur, baseline présente.
     response = client.post(
         "/strategy/compare",
         headers=_AUTH,

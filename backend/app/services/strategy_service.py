@@ -79,7 +79,7 @@ class ComparisonResult:
     athlete: AthleteProfile | None
     weather: WeatherContext | None
     baseline: PaceStrategy
-    recommended: PaceStrategy
+    recommended: PaceStrategy | None
     engines: list[EngineResult]
 
 
@@ -132,15 +132,16 @@ async def build_comparison(
     athlete_provider: AthleteProvider,
     weather: WeatherProvider,
     engines: list[Engine],
-    recommended_generator: StrategyGenerator,
+    recommended_generator: StrategyGenerator | None = None,
     surface: SurfaceProvider | None = None,
     calibration: CalibrationProfile | None = None,
 ) -> ComparisonResult:
-    """Enrichit une seule fois le contexte, produit la **reco ancrée** (production) puis compare
-    la baseline aux moteurs LLM autonomes (#74).
+    """Enrichit une seule fois le contexte, produit (optionnellement) la **reco ancrée** puis
+    compare la baseline aux moteurs LLM autonomes (#74).
 
-    La reco ancrée passe par les garde-fous + repli baseline (tactique bornée + narratif). Chaque
-    moteur de comparaison génère en mode **autonome brut** (sans baseline, ni garde-fou, ni repli).
+    La reco ancrée (si `recommended_generator` est fourni) passe par les garde-fous + repli
+    baseline (tactique bornée + narratif). Les moteurs de comparaison génèrent en mode **autonome
+    brut** (sans baseline, ni garde-fou, ni repli).
     """
     course = parse_gpx(gpx_content)
     course = await elevation.clean_elevations(course)
@@ -150,10 +151,14 @@ async def build_comparison(
 
     baseline = build_baseline_strategy(course, athlete, weather_ctx, calibration)
     recommended = (
-        await generate_strategy(
-            recommended_generator, course, race, athlete, weather_ctx, surface_ctx, calibration
-        )
-    ).strategy
+        (
+            await generate_strategy(
+                recommended_generator, course, race, athlete, weather_ctx, surface_ctx, calibration
+            )
+        ).strategy
+        if recommended_generator is not None
+        else None
+    )
 
     results: list[EngineResult] = []
     for engine in engines:
