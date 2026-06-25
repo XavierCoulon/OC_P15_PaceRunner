@@ -5,7 +5,6 @@ dénivelé), puis lance la **comparaison** : baseline déterministe + variantes 
 autonome/CoT), avec la forme COROS et la météo jour J (cf. #74).
 """
 
-from dataclasses import dataclass
 from datetime import date, datetime
 from datetime import time as dtime
 
@@ -32,6 +31,7 @@ from app.domain.models import (
     StrategyComparison,
     WeatherContext,
 )
+from state import CompareResult, GenResult
 from viz import weather_summary
 
 _WEATHER_SOURCE_LABEL = {
@@ -298,24 +298,7 @@ def _render_comparison(comp: StrategyComparison) -> None:
             st.caption(f"**{title}** — {strat.summary}")
 
 
-@dataclass
-class _GenResult:
-    """Résultat « Générer » mémorisé (persiste à travers les reruns Streamlit)."""
-
-    profile: CourseSummary
-    athlete: AthleteProfile | None
-    weather: WeatherContext | None
-    recommended: PaceStrategy | None
-
-
-@dataclass
-class _CompareResult:
-    """Résultat « Comparer » mémorisé."""
-
-    comp: StrategyComparison
-
-
-def _render_generate(result: _GenResult) -> None:
+def _render_generate(result: GenResult) -> None:
     """Réaffiche un résultat « Générer » mémorisé (profil + forme + météo + reco)."""
     cols = st.columns(2)
     cols[0].metric("Distance", f"{result.profile.distance_km:.2f} km")
@@ -398,7 +381,7 @@ if generate_clicked or compare_clicked:
             except BackendError as exc:
                 st.error(str(exc))
                 st.stop()
-            st.session_state["result"] = _CompareResult(comp)
+            st.session_state["result"] = CompareResult(comp)
             _render_comparison(comp)
         else:
             # « Générer » : profil → forme + météo (dès prêts) → stratégie. Affichage progressif.
@@ -440,12 +423,12 @@ if generate_clicked or compare_clicked:
                 st.error(str(exc))
                 st.stop()
 
-            st.session_state["result"] = _GenResult(profile, athlete, weather, comp.recommended)
+            st.session_state["result"] = GenResult(profile, athlete, weather, comp.recommended)
             if comp.recommended is not None:
                 _render_recommended(comp.recommended)
-elif isinstance(st.session_state.get("result"), _GenResult):
+elif isinstance(st.session_state.get("result"), GenResult):
     _render_generate(st.session_state["result"])
-elif isinstance(st.session_state.get("result"), _CompareResult):
+elif isinstance(st.session_state.get("result"), CompareResult):
     _render_comparison(st.session_state["result"].comp)
 else:
     st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer » ou « Comparer ».")
