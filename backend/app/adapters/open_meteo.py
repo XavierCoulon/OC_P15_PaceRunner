@@ -89,6 +89,37 @@ class OpenMeteoWeatherProvider:
             "temperature_min_c": _at(daily.get("temperature_2m_min"), 0),
         }
 
+    async def historical_daily_temps(
+        self, lat: float, lon: float, start: date, end: date
+    ) -> dict[date, float]:
+        """Température moyenne quotidienne (ERA5) sur une plage, en **un seul appel** (axe B).
+
+        Utilisé pour joindre la météo à l'historique de courses (groupées par lieu). Dégradation
+        gracieuse : toute panne renvoie un dictionnaire partiel (au pire vide).
+        """
+        params: dict[str, float | str] = {
+            "latitude": lat,
+            "longitude": lon,
+            "daily": "temperature_2m_mean",
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+            "timezone": "auto",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                response = await client.get(self._archive_url, params=params)
+                response.raise_for_status()
+                daily = response.json().get("daily", {})
+        except (httpx.HTTPError, KeyError, ValueError, TypeError):
+            return {}
+        times = daily.get("time", []) or []
+        temps = daily.get("temperature_2m_mean", []) or []
+        result: dict[date, float] = {}
+        for day_str, temp in zip(times, temps, strict=False):
+            if temp is not None:
+                result[date.fromisoformat(day_str)] = float(temp)
+        return result
+
     async def _fetch_history(self, lat: float, lon: float, when: datetime) -> list[YearlyWeather]:
         """Relevés des 3 dernières années à la même date calendaire (ERA5), an dernier en tête."""
         years: list[YearlyWeather] = []

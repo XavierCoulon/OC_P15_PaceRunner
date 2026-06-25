@@ -11,6 +11,7 @@ from app.api.routes import (
     get_activity_repository,
     get_athlete_provider,
     get_calibration_store,
+    get_historical_weather_provider,
 )
 from app.config import get_settings
 from app.db.calibration import NullCalibrationStore
@@ -57,6 +58,9 @@ class _FakeRepo:
     async def all_activities(self) -> list[ActivitySummary]:
         return list(self.store.values())
 
+    async def set_weather(self, temps: dict[str, float]) -> int:
+        return len(temps)
+
     async def status(self) -> CalibrationStatus:
         return CalibrationStatus(
             activity_count=len(self.store),
@@ -73,6 +77,13 @@ class _FakeAthlete:
         return AthleteProfile(threshold_pace_sec_per_km=300.0)
 
 
+class _FakeWeather:
+    async def historical_daily_temps(
+        self, lat: float, lon: float, start: date, end: date
+    ) -> dict[date, float]:
+        return {}
+
+
 @pytest.fixture
 def repo() -> _FakeRepo:
     return _FakeRepo()
@@ -86,6 +97,7 @@ def client(monkeypatch: pytest.MonkeyPatch, repo: _FakeRepo) -> Iterator[TestCli
     app.dependency_overrides[get_activity_repository] = lambda: repo
     app.dependency_overrides[get_athlete_provider] = _FakeAthlete
     app.dependency_overrides[get_calibration_store] = NullCalibrationStore
+    app.dependency_overrides[get_historical_weather_provider] = _FakeWeather
     yield TestClient(app)
     app.dependency_overrides.clear()
     get_settings.cache_clear()

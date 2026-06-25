@@ -52,6 +52,7 @@ from app.domain.ports import (
     AthleteProvider,
     CalibrationStore,
     ElevationProvider,
+    HistoricalWeatherProvider,
     PredictionRepository,
     StrategyGenerator,
     WeatherProvider,
@@ -111,6 +112,11 @@ def get_elevation_provider() -> ElevationProvider:
 
 
 def get_weather_provider() -> WeatherProvider:
+    return OpenMeteoWeatherProvider()
+
+
+def get_historical_weather_provider() -> HistoricalWeatherProvider:
+    """Source de météo historique (ERA5) pour la calibration chaleur (axe B)."""
     return OpenMeteoWeatherProvider()
 
 
@@ -385,12 +391,17 @@ async def refresh_calibration(
     repository: Annotated[ActivityRepository, Depends(get_activity_repository)],
     athlete_provider: Annotated[AthleteProvider, Depends(get_athlete_provider)],
     calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
+    weather_provider: Annotated[
+        HistoricalWeatherProvider, Depends(get_historical_weather_provider)
+    ],
     incremental: Annotated[
         bool, Query(description="Incrémental (défaut) ou backfill complet.")
     ] = True,
 ) -> CalibrationRefreshResult:
-    """Ingère l'historique COROS puis recalcule la calibration (hors chemin /strategy)."""
-    service = CalibrationService(provider, repository, athlete_provider, calibration_store)
+    """Ingère l'historique COROS (+ météo jointe) puis recalcule la calibration."""
+    service = CalibrationService(
+        provider, repository, athlete_provider, calibration_store, weather_provider
+    )
     ingested, _profile = await service.refresh(incremental=incremental)
     return CalibrationRefreshResult(
         fetched=ingested.fetched,

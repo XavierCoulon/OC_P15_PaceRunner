@@ -5,7 +5,7 @@ concrets (Open Topo Data, COROS, Open-Meteo, Overpass, LLM HF). Cela permet
 l'injection de dépendances et le remplacement par des doubles de test.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
 from app.domain.models import (
@@ -57,6 +57,15 @@ class WeatherProvider(Protocol):
     """Fournit les conditions prévues à un point et une date/heure donnés."""
 
     async def get_weather(self, lat: float, lon: float, when: datetime) -> WeatherContext: ...
+
+
+@runtime_checkable
+class HistoricalWeatherProvider(Protocol):
+    """Température quotidienne passée (ERA5) sur une plage — pour la calibration chaleur (#76)."""
+
+    async def historical_daily_temps(
+        self, lat: float, lon: float, start: date, end: date
+    ) -> dict[date, float]: ...
 
 
 @runtime_checkable
