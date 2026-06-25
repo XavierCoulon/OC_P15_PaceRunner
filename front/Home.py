@@ -211,6 +211,21 @@ def _render_recommended(strat: PaceStrategy) -> None:
             label = f"km {s.start_km}" if s.start_km == s.end_km else f"km {s.start_km}–{s.end_km}"
             st.markdown(f"- **{label}** — {s.note}")
 
+    st.markdown("**Allure cible par kilomètre :**")
+    effort_label = {"easy": "facile", "steady": "régulier", "hard": "soutenu"}
+    table = pd.DataFrame(
+        [
+            {
+                "km": p.km_index,
+                "pente %": round(p.gradient_pct, 1),
+                "allure": _fmt_pace(p.target_pace_sec_per_km),
+                "effort": effort_label.get(p.effort, p.effort),
+            }
+            for p in strat.km_plans
+        ]
+    )
+    st.dataframe(table, use_container_width=True, hide_index=True)
+
 
 def _render_comparison(comp: StrategyComparison) -> None:
     st.subheader("⚖️ Comparaison : baseline vs modèles × prompts")
