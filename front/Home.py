@@ -313,7 +313,7 @@ with st.sidebar:
         )
         compare_clicked = st.form_submit_button("Comparer les moteurs", disabled=not data_ready)
         st.caption(
-            "**Générer** : baseline calibrée + DeepSeek (tranches + commentaires). "
+            "**Générer** : ta stratégie (baseline calibrée + DeepSeek : tranches + commentaires). "
             "**Comparer** : baseline vs llama3.1:8b autonome vs DeepSeek CoT (courbe + tableau)."
         )
 
@@ -354,7 +354,7 @@ if generate_clicked or compare_clicked:
             _render_elevation_profile(profile)
 
             try:
-                with st.spinner("🎯 Stratégie recommandée (DeepSeek) + comparaison…"):
+                with st.spinner("🎯 Stratégie recommandée (DeepSeek)…"):
                     comp = generate_plan(
                         gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
                     )
@@ -366,6 +366,5 @@ if generate_clicked or compare_clicked:
             _render_weather(comp.weather)
             if comp.recommended is not None:
                 _render_recommended(comp.recommended)
-            _render_comparison(comp)
 else:
     st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer » ou « Comparer ».")

@@ -202,7 +202,7 @@ def test_compare_returns_baseline_and_two_variants(client: TestClient) -> None:
         assert v["strategy"]["generated_by"] == f"llm_{v['mode']}"
 
 
-def test_generate_returns_recommended_and_deepseek_cot(client: TestClient) -> None:
+def test_generate_returns_only_recommended(client: TestClient) -> None:
     app.dependency_overrides[get_deepseek_generator] = _ValidGenerator
     response = client.post(
         "/strategy/generate",
@@ -212,10 +212,10 @@ def test_generate_returns_recommended_and_deepseek_cot(client: TestClient) -> No
     )
     assert response.status_code == 200
     body = response.json()
-    # Reco ancrée (production) présente + une seule variante DeepSeek CoT.
+    # « Générer » = un seul appel : la reco ancrée, sans variante de comparaison.
     assert body["recommended"]["generated_by"] in ("llm", "baseline")
     assert len(body["recommended"]["km_plans"]) == len(body["course"]["segments"])
-    assert [v["mode"] for v in body["variants"]] == ["cot"]
+    assert body["variants"] == []
 
 
 def test_compare_reports_variant_failure(client: TestClient) -> None:

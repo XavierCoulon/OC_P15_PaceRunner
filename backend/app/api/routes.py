@@ -276,10 +276,7 @@ async def generate_recommended(
     deepseek: Annotated[StrategyGenerator, Depends(get_deepseek_generator)],
     calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
 ) -> StrategyComparison:
-    """« Générer » : reco ancrée (baseline + DeepSeek, tactique + narratif) + comparaison
-    baseline vs DeepSeek CoT."""
-    settings = get_settings()
-    engines = [Engine(f"{_DEEPSEEK_LABEL} · CoT", settings.compare_hf_model, deepseek, "cot")]
+    """« Générer » : reco ancrée (baseline + DeepSeek, tactique + narratif). Un seul appel LLM."""
     content = await _read_gpx(gpx)
     race = RaceContext(race_datetime=race_datetime)
     try:
@@ -289,7 +286,7 @@ async def generate_recommended(
             elevation=elevation,
             athlete_provider=athlete_provider,
             weather=weather,
-            engines=engines,
+            engines=[],
             recommended_generator=deepseek,
             calibration=await calibration_store.load(),
         )
