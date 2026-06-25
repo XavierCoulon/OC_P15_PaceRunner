@@ -164,17 +164,37 @@ def _extract_json(text: str) -> dict[str, Any]:
     raise json.JSONDecodeError("aucun objet JSON", text, 0)
 
 
+_DEFAULT_SECTION_NOTE = {
+    "hard": "montée — effort maîtrisé, garde de la marge",
+    "easy": "descente — relance et récupère",
+    "steady": "terrain roulant — rythme régulier",
+}
+
+
+def _default_section_note(section: CourseSection) -> str:
+    """Note de repli déterministe (terrain) quand le LLM n'en a pas fourni pour cette tranche."""
+    return _DEFAULT_SECTION_NOTE.get(section.effort, "rythme régulier")
+
+
 def _attach_section_narrative(
     strategy: PaceStrategy, sections: list[CourseSection], raw: str
 ) -> PaceStrategy:
-    """Assemble le narratif : les **bornes viennent du serveur** (sections), le LLM ne fournit que
-    le texte (`section_notes`). Appariement dans l'ordre — toute longueur en trop est tronquée.
+    """Assemble le narratif : les **bornes viennent du serveur** (sections). On utilise le texte du
+    LLM (`section_notes`) quand il existe, sinon un **repli déterministe** dérivé du terrain — pour
+    que **toutes** les tranches soient couvertes même si le modèle en oublie (cf. petits modèles).
     """
     notes = _extract_section_notes(raw)
     narrative = [
-        SectionNote(start_km=section.start_km, end_km=section.end_km, note=note.strip())
-        for section, note in zip(sections, notes, strict=False)
-        if note.strip()
+        SectionNote(
+            start_km=section.start_km,
+            end_km=section.end_km,
+            note=(
+                notes[i].strip()
+                if i < len(notes) and notes[i].strip()
+                else _default_section_note(section)
+            ),
+        )
+        for i, section in enumerate(sections)
     ]
     return strategy.model_copy(update={"section_narrative": narrative})
 

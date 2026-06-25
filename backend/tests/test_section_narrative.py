@@ -50,16 +50,20 @@ def test_narrative_bounds_come_from_server_not_llm() -> None:
     assert out.section_narrative[1].note == "monte régulier"
 
 
-def test_narrative_truncates_on_length_mismatch() -> None:
-    course = _course([0.0, 5.0, -5.0])
+def test_narrative_covers_all_sections_with_fallback() -> None:
+    course = _course([0.0, 5.0, -5.0])  # steady / hard / easy
     sections = segment_course(course)
     strategy = build_baseline_strategy(course, None)
-    # Trop peu de notes → on n'apparie que ce qui existe (bornes serveur préservées).
+    # Trop peu de notes LLM → les tranches manquantes prennent un repli déterministe (terrain).
     out = _attach_section_narrative(strategy, sections, json.dumps({"section_notes": ["x"]}))
-    assert len(out.section_narrative) == 1
-    # Aucune note → narratif vide.
+    assert len(out.section_narrative) == 3  # toutes les tranches couvertes
+    assert out.section_narrative[0].note == "x"  # note du LLM
+    assert "montée" in out.section_narrative[1].note  # repli (hard)
+    assert "descente" in out.section_narrative[2].note  # repli (easy)
+    # Aucune note LLM → repli déterministe partout, plan complet.
     out2 = _attach_section_narrative(strategy, sections, json.dumps({"distance_km": 3}))
-    assert out2.section_narrative == []
+    assert len(out2.section_narrative) == 3
+    assert all(n.note for n in out2.section_narrative)
 
 
 def test_extract_section_notes_tolerant() -> None:
