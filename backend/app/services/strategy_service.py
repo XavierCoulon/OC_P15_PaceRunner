@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from app.adapters.gpx_parser import parse_gpx
 from app.domain.models import (
     AthleteProfile,
+    CalibrationProfile,
     CourseProfile,
     GenerationMode,
     PaceStrategy,
@@ -91,6 +92,7 @@ async def build_strategy(
     generator: StrategyGenerator,
     surface: SurfaceProvider | None = None,
     repository: PredictionRepository | None = None,
+    calibration: CalibrationProfile | None = None,
 ) -> PipelineResult:
     """Exécute le pipeline complet et renvoie la stratégie + le contexte utilisé.
 
@@ -104,7 +106,9 @@ async def build_strategy(
     weather_ctx = await weather.get_weather(course.start_lat, course.start_lon, race.race_datetime)
     surface_ctx = await surface.get_surface(course) if surface is not None else None
 
-    outcome = await generate_strategy(generator, course, race, athlete, weather_ctx, surface_ctx)
+    outcome = await generate_strategy(
+        generator, course, race, athlete, weather_ctx, surface_ctx, calibration
+    )
 
     if repository is not None:
         await _journal(
@@ -128,6 +132,7 @@ async def build_comparison(
     weather: WeatherProvider,
     engines: list[Engine],
     surface: SurfaceProvider | None = None,
+    calibration: CalibrationProfile | None = None,
 ) -> ComparisonResult:
     """Enrichit une seule fois le contexte, puis compare la baseline aux moteurs LLM (#74).
 
@@ -140,7 +145,7 @@ async def build_comparison(
     weather_ctx = await weather.get_weather(course.start_lat, course.start_lon, race.race_datetime)
     surface_ctx = await surface.get_surface(course) if surface is not None else None
 
-    baseline = build_baseline_strategy(course, athlete, weather_ctx)
+    baseline = build_baseline_strategy(course, athlete, weather_ctx, calibration)
 
     results: list[EngineResult] = []
     for engine in engines:
@@ -148,7 +153,14 @@ async def build_comparison(
         error: str | None = None
         try:
             strategy = await generate_raw(
-                engine.generator, course, race, athlete, weather_ctx, surface_ctx, engine.mode
+                engine.generator,
+                course,
+                race,
+                athlete,
+                weather_ctx,
+                surface_ctx,
+                engine.mode,
+                calibration,
             )
         except Exception as exc:  # mode brut : pas de repli, on remonte l'échec de la variante
             error = f"{type(exc).__name__}: {exc}"

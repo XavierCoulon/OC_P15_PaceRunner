@@ -17,6 +17,7 @@ from app.api.routes import (
 from app.config import get_settings
 from app.domain.models import (
     AthleteProfile,
+    CalibrationProfile,
     CourseProfile,
     KmPlan,
     PaceStrategy,
@@ -69,6 +70,7 @@ class _ValidGenerator:
         surface: SurfaceContext | None,
         baseline: PaceStrategy | None = None,
         mode: str = "anchored",
+        calibration: CalibrationProfile | None = None,
     ) -> PaceStrategy:
         plans = [
             KmPlan(

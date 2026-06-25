@@ -23,7 +23,9 @@ from app.config import get_settings
 from app.db.calibration import (
     ActivityRepository,
     NullActivityRepository,
+    NullCalibrationStore,
     SqlActivityRepository,
+    SqlCalibrationStore,
 )
 from app.db.history import HistoryReader, NullHistoryReader, SqlHistoryReader
 from app.db.read_models import (
@@ -48,6 +50,7 @@ from app.domain.models import (
 from app.domain.ports import (
     ActivityHistoryProvider,
     AthleteProvider,
+    CalibrationStore,
     ElevationProvider,
     PredictionRepository,
     StrategyGenerator,
@@ -152,6 +155,13 @@ def get_activity_repository() -> ActivityRepository:
     return NullActivityRepository()
 
 
+def get_calibration_store() -> CalibrationStore:
+    """Store du profil de calibration si la base est configurée, sinon no-op."""
+    if get_settings().database_url:
+        return SqlCalibrationStore()
+    return NullCalibrationStore()
+
+
 @router.get("/health")
 def health() -> dict[str, str]:
     """Sonde de disponibilité (publique, utilisée par le smoke test et le déploiement)."""
@@ -186,6 +196,7 @@ async def create_strategy(
     weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
     generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
     repository: Annotated[PredictionRepository, Depends(get_prediction_repository)],
+    calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
 ) -> StrategyResponse:
     """Pipeline complet : GPX + date/heure → stratégie + contexte (profil, COROS, météo)."""
     content = await _read_gpx(gpx)
@@ -199,6 +210,7 @@ async def create_strategy(
             weather=weather,
             generator=generator,
             repository=repository,
+            calibration=await calibration_store.load(),
         )
     except GpxParseError as exc:
         raise HTTPException(
@@ -227,6 +239,7 @@ async def compare_strategies(
     weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
     local_generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
     hf_generator: Annotated[StrategyGenerator, Depends(get_hf_strategy_generator)],
+    calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
 ) -> StrategyComparison:
     """Compare la baseline à 3 variantes moteur × prompt (génération brute, #74).
 
@@ -249,6 +262,7 @@ async def compare_strategies(
             athlete_provider=athlete_provider,
             weather=weather,
             engines=engines,
+            calibration=await calibration_store.load(),
         )
     except GpxParseError as exc:
         raise HTTPException(
@@ -369,15 +383,17 @@ async def get_calibration(
 async def refresh_calibration(
     provider: Annotated[ActivityHistoryProvider, Depends(get_activity_history_provider)],
     repository: Annotated[ActivityRepository, Depends(get_activity_repository)],
+    athlete_provider: Annotated[AthleteProvider, Depends(get_athlete_provider)],
+    calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
     incremental: Annotated[
         bool, Query(description="Incrémental (défaut) ou backfill complet.")
     ] = True,
 ) -> CalibrationRefreshResult:
-    """Récupère l'historique COROS et le persiste (hors chemin /strategy). Idempotent."""
-    service = CalibrationService(provider, repository)
-    result = await service.ingest(incremental=incremental)
+    """Ingère l'historique COROS puis recalcule la calibration (hors chemin /strategy)."""
+    service = CalibrationService(provider, repository, athlete_provider, calibration_store)
+    ingested, _profile = await service.refresh(incremental=incremental)
     return CalibrationRefreshResult(
-        fetched=result.fetched,
-        inserted=result.inserted,
+        fetched=ingested.fetched,
+        inserted=ingested.inserted,
         status=await repository.status(),
     )

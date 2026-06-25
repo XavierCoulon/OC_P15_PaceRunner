@@ -8,6 +8,7 @@ aux **conditions météo** (chaleur, vent, pluie).
 
 from app.domain.models import (
     AthleteProfile,
+    CalibrationProfile,
     CourseProfile,
     KmPlan,
     PaceStrategy,
@@ -17,14 +18,18 @@ from app.domain.models import (
 # Allure de repli si l'allure seuil COROS est indisponible (6:00/km).
 _DEFAULT_THRESHOLD_PACE = 360.0
 
-# Facteur d'allure de course selon la distance (l'allure seuil ≈ effort ~1 h).
-_DISTANCE_FACTORS: tuple[tuple[float, float], ...] = (
+# Borne supérieure « au-delà du marathon » (sentinelle, JSON-compatible contrairement à inf).
+LONG_BIN_KM = 9999.0
+
+# Facteurs d'allure de course par tranche de distance (l'allure seuil ≈ effort ~1 h).
+# Génériques par défaut ; la calibration (#76, axe A) peut les remplacer par tes meilleurs efforts.
+DISTANCE_BINS: tuple[tuple[float, float], ...] = (
     (5.0, 0.97),  # ≤ 5 km : un peu plus rapide que le seuil
     (10.0, 1.00),  # ≤ 10 km : ~ allure seuil
     (21.1, 1.05),  # ≤ semi
     (42.2, 1.12),  # ≤ marathon
+    (LONG_BIN_KM, 1.18),  # au-delà du marathon
 )
-_LONG_FACTOR = 1.18  # au-delà du marathon
 
 # Coût énergétique de la course selon la pente (Minetti et al., 2002, J/kg/m).
 # Le facteur d'allure = coût(pente) / coût(plat) → fortement non-linéaire (cf. G3).
@@ -64,11 +69,22 @@ def _weather_factor(weather: WeatherContext | None) -> float:
     return 1.0 + min(penalty, _MAX_WEATHER_PENALTY)
 
 
-def _race_pace_factor(distance_km: float) -> float:
-    for max_km, factor in _DISTANCE_FACTORS:
+def _race_pace_factor(
+    distance_km: float, bins: tuple[tuple[float, float], ...] = DISTANCE_BINS
+) -> float:
+    for max_km, factor in bins:
         if distance_km <= max_km:
             return factor
-    return _LONG_FACTOR
+    return bins[-1][1]
+
+
+def _distance_bins(
+    calibration: CalibrationProfile | None,
+) -> tuple[tuple[float, float], ...]:
+    """Tranches de distance perso (axe A) si calibrées, sinon les facteurs génériques."""
+    if calibration is not None and calibration.distance_factors:
+        return tuple((float(up), float(f)) for up, f in calibration.distance_factors)
+    return DISTANCE_BINS
 
 
 def _grade_factor(gradient_pct: float) -> float:
@@ -102,8 +118,14 @@ def build_baseline_strategy(
     course: CourseProfile,
     athlete: AthleteProfile | None,
     weather: WeatherContext | None = None,
+    calibration: CalibrationProfile | None = None,
 ) -> PaceStrategy:
-    """Construit une `PaceStrategy` déterministe (profil + forme athlète + météo)."""
+    """Construit une `PaceStrategy` déterministe (profil + forme athlète + météo).
+
+    Si `calibration.distance_factors` est fourni (axe A, #76), la décroissance allure↔distance
+    vient des **meilleurs efforts réels** du coureur au lieu des facteurs génériques ; l'allure
+    seuil COROS reste l'ancre.
+    """
     threshold = _DEFAULT_THRESHOLD_PACE
     recovery: float | None = None
     if athlete is not None:
@@ -111,7 +133,8 @@ def build_baseline_strategy(
             threshold = athlete.threshold_pace_sec_per_km
         recovery = athlete.recovery_pct
 
-    base_pace = threshold * _race_pace_factor(course.distance_km)
+    bins = _distance_bins(calibration)
+    base_pace = threshold * _race_pace_factor(course.distance_km, bins)
     freshness = _freshness_factor(recovery)
     weather_factor = _weather_factor(weather)
 
@@ -142,9 +165,14 @@ def build_baseline_strategy(
     average_pace = total_time / course.distance_km
     recovery_note = f", récup {recovery:.0f}%" if recovery is not None else ""
     weather_note = f", météo +{(weather_factor - 1) * 100:.0f}%" if weather_factor > 1.0 else ""
+    calib_note = (
+        " · distance calibrée sur tes meilleurs efforts"
+        if calibration is not None and calibration.distance_factors
+        else ""
+    )
     summary = (
         f"Baseline déterministe — allure seuil {_format_pace(threshold)}/km "
-        f"ajustée à la distance, à la pente{recovery_note}{weather_note}."
+        f"ajustée à la distance, à la pente{recovery_note}{weather_note}{calib_note}."
     )
     return PaceStrategy(
         distance_km=course.distance_km,

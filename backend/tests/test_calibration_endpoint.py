@@ -6,10 +6,16 @@ from datetime import date
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import get_activity_history_provider, get_activity_repository
+from app.api.routes import (
+    get_activity_history_provider,
+    get_activity_repository,
+    get_athlete_provider,
+    get_calibration_store,
+)
 from app.config import get_settings
+from app.db.calibration import NullCalibrationStore
 from app.db.read_models import CalibrationStatus
-from app.domain.models import ActivitySummary
+from app.domain.models import ActivitySummary, AthleteProfile
 from app.main import app
 
 _TOKEN = "secret-token"
@@ -48,6 +54,9 @@ class _FakeRepo:
     async def last_synced_timestamp(self) -> int | None:
         return max((a.start_timestamp for a in self.store.values()), default=None)
 
+    async def all_activities(self) -> list[ActivitySummary]:
+        return list(self.store.values())
+
     async def status(self) -> CalibrationStatus:
         return CalibrationStatus(
             activity_count=len(self.store),
@@ -57,6 +66,11 @@ class _FakeRepo:
             trail_sample_count=0,
             calibration_computed_at=None,
         )
+
+
+class _FakeAthlete:
+    async def get_athlete_profile(self) -> AthleteProfile:
+        return AthleteProfile(threshold_pace_sec_per_km=300.0)
 
 
 @pytest.fixture
@@ -70,6 +84,8 @@ def client(monkeypatch: pytest.MonkeyPatch, repo: _FakeRepo) -> Iterator[TestCli
     get_settings.cache_clear()
     app.dependency_overrides[get_activity_history_provider] = _FakeProvider
     app.dependency_overrides[get_activity_repository] = lambda: repo
+    app.dependency_overrides[get_athlete_provider] = _FakeAthlete
+    app.dependency_overrides[get_calibration_store] = NullCalibrationStore
     yield TestClient(app)
     app.dependency_overrides.clear()
     get_settings.cache_clear()

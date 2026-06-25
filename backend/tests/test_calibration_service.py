@@ -1,10 +1,10 @@
-"""Tests du service de calibration : ingestion idempotente + incrémentale, et stores nuls."""
+"""Tests du service de calibration : ingestion idempotente/incrémentale, compute, stores nuls."""
 
 from datetime import date
 
 from app.db.calibration import NullActivityRepository, NullCalibrationStore
 from app.db.read_models import CalibrationStatus
-from app.domain.models import ActivitySummary, CalibrationProfile
+from app.domain.models import ActivitySummary, AthleteProfile, CalibrationProfile
 from app.services.calibration_service import CalibrationService
 
 
@@ -42,6 +42,9 @@ class _FakeRepo:
     async def last_synced_timestamp(self) -> int | None:
         return max((a.start_timestamp for a in self.store.values()), default=None)
 
+    async def all_activities(self) -> list[ActivitySummary]:
+        return list(self.store.values())
+
     async def status(self) -> CalibrationStatus:
         return CalibrationStatus(
             activity_count=len(self.store),
@@ -53,10 +56,31 @@ class _FakeRepo:
         )
 
 
+class _FakeAthlete:
+    async def get_athlete_profile(self) -> AthleteProfile:
+        return AthleteProfile(threshold_pace_sec_per_km=300.0)
+
+
+class _FakeStore:
+    def __init__(self) -> None:
+        self.saved: CalibrationProfile | None = None
+
+    async def load(self) -> CalibrationProfile | None:
+        return self.saved
+
+    async def save(self, profile: CalibrationProfile) -> None:
+        self.saved = profile
+
+
+def _service(provider: _FakeProvider, repo: _FakeRepo) -> tuple[CalibrationService, _FakeStore]:
+    store = _FakeStore()
+    return CalibrationService(provider, repo, _FakeAthlete(), store), store
+
+
 async def test_backfill_then_incremental_is_idempotent() -> None:
     provider = _FakeProvider([_activity("a", 100), _activity("b", 200)])
     repo = _FakeRepo()
-    service = CalibrationService(provider, repo)
+    service, _ = _service(provider, repo)
 
     first = await service.ingest(incremental=False)
     assert (first.fetched, first.inserted) == (2, 2)
@@ -70,13 +94,26 @@ async def test_incremental_picks_up_new_activity() -> None:
     activities = [_activity("a", 100), _activity("b", 200)]
     provider = _FakeProvider(activities)
     repo = _FakeRepo()
-    service = CalibrationService(provider, repo)
+    service, _ = _service(provider, repo)
     await service.ingest(incremental=False)
 
     activities.append(_activity("c", 300))
     result = await service.ingest(incremental=True)
     assert (result.fetched, result.inserted) == (1, 1)
     assert set(repo.store) == {"a", "b", "c"}
+
+
+async def test_refresh_computes_and_saves_profile() -> None:
+    provider = _FakeProvider([_activity("a", 100), _activity("b", 200)])
+    repo = _FakeRepo()
+    service, store = _service(provider, repo)
+
+    ingested, profile = await service.refresh(incremental=False)
+    assert ingested.inserted == 2
+    assert profile.sample_count == 2
+    assert profile.computed_at is not None
+    # Le snapshot est persisté pour être relu sur le chemin /strategy.
+    assert store.saved is profile
 
 
 async def test_null_stores_degrade_gracefully() -> None:
@@ -86,6 +123,7 @@ async def test_null_stores_degrade_gracefully() -> None:
     repo = NullActivityRepository()
     assert await repo.upsert([_activity("a", 100)]) == 0
     assert await repo.last_synced_timestamp() is None
+    assert await repo.all_activities() == []
     status = await repo.status()
     assert status.activity_count == 0
     assert status.calibration_computed_at is None
