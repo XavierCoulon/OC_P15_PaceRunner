@@ -10,6 +10,7 @@ from app.domain.models import (
     AthleteProfile,
     CalibrationProfile,
     CourseProfile,
+    CourseSection,
     KmPlan,
     PaceStrategy,
     WeatherContext,
@@ -119,6 +120,37 @@ def effort_from_gradient(gradient_pct: float) -> str:
     if gradient_pct <= _EASY_PCT:
         return "easy"
     return "steady"
+
+
+def segment_course(course: CourseProfile) -> list[CourseSection]:
+    """Découpe le parcours en tranches homogènes : km consécutifs de même effort (pente).
+
+    Déterministe et stable : c'est le **serveur** qui fixe les tranches (le LLM ne fait que les
+    décrire). Sert de support au narratif de course par tranche.
+    """
+    sections: list[CourseSection] = []
+    current: list[tuple[int, float]] = []  # (km_index, gradient_pct)
+    current_effort: str | None = None
+    for segment in course.segments:
+        effort = effort_from_gradient(segment.gradient_pct)
+        if effort != current_effort and current:
+            sections.append(_close_section(current, current_effort))
+            current = []
+        current_effort = effort
+        current.append((segment.km_index, segment.gradient_pct))
+    if current and current_effort is not None:
+        sections.append(_close_section(current, current_effort))
+    return sections
+
+
+def _close_section(kms: list[tuple[int, float]], effort: str | None) -> CourseSection:
+    gradients = [g for _, g in kms]
+    return CourseSection(
+        start_km=kms[0][0],
+        end_km=kms[-1][0],
+        effort=effort or "steady",
+        avg_gradient_pct=round(sum(gradients) / len(gradients), 1),
+    )
 
 
 def _format_pace(pace_sec: float) -> str:

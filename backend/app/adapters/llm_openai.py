@@ -16,9 +16,11 @@ from app.domain.models import (
     AthleteProfile,
     CalibrationProfile,
     CourseProfile,
+    CourseSection,
     GenerationMode,
     PaceStrategy,
     RaceContext,
+    SectionNote,
     SurfaceContext,
     WeatherContext,
 )
@@ -27,6 +29,7 @@ from app.prompts.strategy_system import (
     STRATEGY_SYSTEM_PROMPT_AUTONOMOUS,
     STRATEGY_SYSTEM_PROMPT_COT,
 )
+from app.services.baseline_strategy import segment_course
 from app.services.calibration_compute import calibration_note
 
 _SYSTEM_BY_MODE = {
@@ -80,25 +83,36 @@ class OpenAICompatibleStrategyGenerator:
         # anchored : ancré sur la baseline. autonomous/cot : le LLM conçoit seul (sans baseline).
         # cot : raisonnement explicite imposé → pas de mode JSON (le modèle réfléchit avant).
         anchor = baseline if mode == "anchored" else None
+        # Le narratif par tranche n'existe qu'en mode ancré (découpage déterministe côté serveur).
+        sections = segment_course(course) if mode == "anchored" else []
         json_mode = mode != "cot"
         messages: list[Message] = [
             {"role": "system", "content": _SYSTEM_BY_MODE[mode]},
             {
                 "role": "user",
                 "content": _build_user_message(
-                    course, race, athlete, weather, surface, anchor, calibration
+                    course, race, athlete, weather, surface, anchor, calibration, sections
                 ),
             },
         ]
         raw = await self._chat(messages, json_mode=json_mode)
+        strategy, used_raw = await self._parse_with_retry(messages, raw, json_mode=json_mode)
+        if sections:
+            strategy = _attach_section_narrative(strategy, sections, used_raw)
+        return strategy
+
+    async def _parse_with_retry(
+        self, messages: list[Message], raw: str, *, json_mode: bool
+    ) -> tuple[PaceStrategy, str]:
+        """Parse la sortie (un retry si JSON non conforme). Renvoie (stratégie, brut retenu)."""
         try:
-            return _parse_strategy(raw)
+            return _parse_strategy(raw), raw
         except (json.JSONDecodeError, ValidationError):
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content": _RETRY_INSTRUCTION})
             retry = await self._chat(messages, json_mode=json_mode)
             try:
-                return _parse_strategy(retry)
+                return _parse_strategy(retry), retry
             except (json.JSONDecodeError, ValidationError) as exc:
                 raise LLMGenerationError("Sortie LLM non conforme après retry.") from exc
 
@@ -146,6 +160,36 @@ def _extract_json(text: str) -> dict[str, Any]:
     raise json.JSONDecodeError("aucun objet JSON", text, 0)
 
 
+def _attach_section_narrative(
+    strategy: PaceStrategy, sections: list[CourseSection], raw: str
+) -> PaceStrategy:
+    """Assemble le narratif : les **bornes viennent du serveur** (sections), le LLM ne fournit que
+    le texte (`section_notes`). Appariement dans l'ordre — toute longueur en trop est tronquée.
+    """
+    notes = _extract_section_notes(raw)
+    narrative = [
+        SectionNote(start_km=section.start_km, end_km=section.end_km, note=note.strip())
+        for section, note in zip(sections, notes, strict=False)
+        if note.strip()
+    ]
+    return strategy.model_copy(update={"section_narrative": narrative})
+
+
+def _extract_section_notes(raw: str) -> list[str]:
+    """Récupère la liste `section_notes` du JSON LLM (tolérant : ignore tout le reste)."""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            data = _extract_json(raw)
+        except json.JSONDecodeError:
+            return []
+    notes = data.get("section_notes") if isinstance(data, dict) else None
+    if not isinstance(notes, list):
+        return []
+    return [n for n in notes if isinstance(n, str)]
+
+
 def _build_user_message(
     course: CourseProfile,
     race: RaceContext,
@@ -154,6 +198,7 @@ def _build_user_message(
     surface: SurfaceContext | None,
     baseline: PaceStrategy | None = None,
     calibration: CalibrationProfile | None = None,
+    sections: list[CourseSection] | None = None,
 ) -> str:
     payload: dict[str, Any] = {
         "course": {
@@ -184,4 +229,15 @@ def _build_user_message(
     if note is not None:
         # Résumé qualitatif personnalisé (forme/efforts) — pas de stats brutes à recombiner.
         payload["calibration"] = note
+    if sections:
+        # Tranches déterministes à décrire (le LLM renvoie une note par tranche, dans l'ordre).
+        payload["sections"] = [
+            {
+                "start_km": s.start_km,
+                "end_km": s.end_km,
+                "effort": s.effort,
+                "avg_gradient_pct": s.avg_gradient_pct,
+            }
+            for s in sections
+        ]
     return json.dumps(payload, ensure_ascii=False)

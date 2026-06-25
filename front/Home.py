@@ -188,6 +188,27 @@ def _render_weather_history(weather: WeatherContext | None) -> None:
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
+def _render_recommended(strat: PaceStrategy) -> None:
+    """Stratégie de production : baseline calibrée + tactique LLM bornée + narratif par tranche."""
+    st.subheader("🎯 Stratégie recommandée")
+    cols = st.columns(2)
+    cols[0].metric("Temps estimé", _fmt_duration(strat.estimated_time_sec))
+    cols[1].metric("Allure moyenne", _fmt_pace(strat.average_pace_sec_per_km))
+    origin = (
+        "Baseline calibrée + tactique IA"
+        if strat.generated_by == "llm"
+        else "Baseline déterministe (repli garde-fou)"
+    )
+    st.caption(f"Origine : {origin}.")
+    if strat.summary:
+        st.caption(strat.summary)
+    if strat.section_narrative:
+        st.markdown("**Plan de course par tranche :**")
+        for s in strat.section_narrative:
+            label = f"km {s.start_km}" if s.start_km == s.end_km else f"km {s.start_km}–{s.end_km}"
+            st.markdown(f"- **{label}** — {s.note}")
+
+
 def _render_comparison(comp: StrategyComparison) -> None:
     st.subheader("⚖️ Comparaison : baseline vs modèles × prompts")
 
@@ -318,9 +339,9 @@ if submitted:
         _render_map(profile.route)
         _render_elevation_profile(profile)
 
-        # 2) Comparaison (baseline + 3 variantes LLM) — le plus long.
+        # 2) Reco ancrée (production) + comparaison (baseline + 3 variantes LLM) — le plus long.
         try:
-            with st.spinner("⚖️ Baseline + 3 variantes LLM (local autonome/CoT, HF CoT)…"):
+            with st.spinner("🎯 Stratégie recommandée + comparaison des moteurs…"):
                 comp = compare_strategies(
                     gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
                 )
@@ -328,6 +349,7 @@ if submitted:
             st.error(str(exc))
             st.stop()
 
+        _render_recommended(comp.recommended)
         _render_athlete(comp.athlete)
         _render_weather(comp.weather)
         _render_comparison(comp)

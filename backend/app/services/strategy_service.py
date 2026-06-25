@@ -73,12 +73,13 @@ class EngineResult:
 
 @dataclass(frozen=True)
 class ComparisonResult:
-    """Baseline (référence) + stratégies autonomes des moteurs comparés (cf. #74)."""
+    """Reco ancrée (production) + baseline (référence) + moteurs autonomes comparés (cf. #74)."""
 
     course: CourseProfile
     athlete: AthleteProfile | None
     weather: WeatherContext | None
     baseline: PaceStrategy
+    recommended: PaceStrategy
     engines: list[EngineResult]
 
 
@@ -131,13 +132,15 @@ async def build_comparison(
     athlete_provider: AthleteProvider,
     weather: WeatherProvider,
     engines: list[Engine],
+    recommended_generator: StrategyGenerator,
     surface: SurfaceProvider | None = None,
     calibration: CalibrationProfile | None = None,
 ) -> ComparisonResult:
-    """Enrichit une seule fois le contexte, puis compare la baseline aux moteurs LLM (#74).
+    """Enrichit une seule fois le contexte, produit la **reco ancrée** (production) puis compare
+    la baseline aux moteurs LLM autonomes (#74).
 
-    Chaque moteur génère en mode **autonome brut** (sans baseline, sans garde-fou ni repli).
-    Toute panne d'un moteur devient son `error` ; les autres colonnes restent disponibles.
+    La reco ancrée passe par les garde-fous + repli baseline (tactique bornée + narratif). Chaque
+    moteur de comparaison génère en mode **autonome brut** (sans baseline, ni garde-fou, ni repli).
     """
     course = parse_gpx(gpx_content)
     course = await elevation.clean_elevations(course)
@@ -146,6 +149,11 @@ async def build_comparison(
     surface_ctx = await surface.get_surface(course) if surface is not None else None
 
     baseline = build_baseline_strategy(course, athlete, weather_ctx, calibration)
+    recommended = (
+        await generate_strategy(
+            recommended_generator, course, race, athlete, weather_ctx, surface_ctx, calibration
+        )
+    ).strategy
 
     results: list[EngineResult] = []
     for engine in engines:
@@ -179,6 +187,7 @@ async def build_comparison(
         athlete=athlete,
         weather=weather_ctx,
         baseline=baseline,
+        recommended=recommended,
         engines=results,
     )
 

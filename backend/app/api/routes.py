@@ -268,6 +268,7 @@ async def compare_strategies(
             athlete_provider=athlete_provider,
             weather=weather,
             engines=engines,
+            recommended_generator=local_generator,
             calibration=await calibration_store.load(),
         )
     except GpxParseError as exc:
@@ -281,6 +282,7 @@ async def compare_strategies(
         athlete=result.athlete,
         weather=result.weather,
         baseline=result.baseline,
+        recommended=result.recommended,
         variants=[
             ComparedStrategy(
                 label=e.label, model=e.model, mode=e.mode, strategy=e.strategy, error=e.error

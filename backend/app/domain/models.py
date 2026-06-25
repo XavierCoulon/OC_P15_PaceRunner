@@ -189,6 +189,23 @@ class KmPlan(_Frozen):
     note: str | None = None
 
 
+class CourseSection(_Frozen):
+    """Tranche homogène du parcours (km consécutifs de même effort) — découpage déterministe."""
+
+    start_km: int = Field(ge=1)
+    end_km: int = Field(ge=1)
+    effort: str = Field(description="Intensité dominante (easy / steady / hard).")
+    avg_gradient_pct: float
+
+
+class SectionNote(_Frozen):
+    """Consigne de coaching en langage naturel pour une tranche (narratif LLM, bornes figées)."""
+
+    start_km: int = Field(ge=1)
+    end_km: int = Field(ge=1)
+    note: str
+
+
 class PaceStrategy(_Frozen):
     """Stratégie d'allure complète renvoyée au coureur."""
 
@@ -198,6 +215,10 @@ class PaceStrategy(_Frozen):
     km_plans: list[KmPlan] = Field(min_length=1)
     summary: str | None = None
     generated_by: str = Field(description="Origine de la stratégie : « llm » ou « baseline ».")
+    section_narrative: list[SectionNote] = Field(
+        default_factory=list,
+        description="Narratif de course par tranche (assemblé serveur ; bornes déterministes).",
+    )
 
 
 class RoutePoint(_Frozen):
@@ -252,4 +273,5 @@ class StrategyComparison(_Frozen):
     athlete: AthleteProfile | None = None
     weather: WeatherContext | None = None
     baseline: PaceStrategy
+    recommended: PaceStrategy
     variants: list[ComparedStrategy] = Field(default_factory=list)

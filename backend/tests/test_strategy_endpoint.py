@@ -186,6 +186,9 @@ def test_compare_returns_baseline_and_variants(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["baseline"]["generated_by"] == "baseline"
+    # Stratégie recommandée (ancrée, production) présente en plus de la comparaison.
+    assert body["recommended"]["generated_by"] in ("llm", "baseline")
+    assert len(body["recommended"]["km_plans"]) == len(body["course"]["segments"])
     # 3 variantes : local autonome, local CoT, HF CoT.
     variants = body["variants"]
     assert [v["mode"] for v in variants] == ["autonomous", "cot", "cot"]
