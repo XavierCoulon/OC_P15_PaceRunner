@@ -40,17 +40,6 @@ _logger = logging.getLogger("pacerunner.journal")
 
 
 @dataclass(frozen=True)
-class PipelineResult:
-    """Stratégie produite et le contexte consolidé qui l'a nourrie."""
-
-    strategy: PaceStrategy
-    course: CourseProfile
-    athlete: AthleteProfile | None
-    weather: WeatherContext | None
-    surface: SurfaceContext | None
-
-
-@dataclass(frozen=True)
 class Engine:
     """Une variante à comparer : libellé + modèle + générateur + mode de prompt."""
 
@@ -81,55 +70,6 @@ class ComparisonResult:
     baseline: PaceStrategy
     recommended: PaceStrategy | None
     engines: list[EngineResult]
-
-
-async def build_strategy(
-    gpx_content: str,
-    race: RaceContext,
-    *,
-    elevation: ElevationProvider,
-    athlete_provider: AthleteProvider,
-    weather: WeatherProvider,
-    generator: StrategyGenerator,
-    surface: SurfaceProvider | None = None,
-    repository: PredictionRepository | None = None,
-    calibration: CalibrationProfile | None = None,
-) -> PipelineResult:
-    """Exécute le pipeline complet et renvoie la stratégie + le contexte utilisé.
-
-    Lève `GpxParseError` si le GPX est illisible (les autres étapes sont tolérantes).
-    """
-    course = parse_gpx(gpx_content)
-    gpx_hash = hashlib.sha256(gpx_content.encode("utf-8")).hexdigest()
-    course = await elevation.clean_elevations(course)
-
-    athlete = await athlete_provider.get_athlete_profile()
-    weather_ctx = await weather.get_weather(course.start_lat, course.start_lon, race.race_datetime)
-    surface_ctx = await surface.get_surface(course) if surface is not None else None
-
-    outcome = await generate_strategy(
-        generator, course, race, athlete, weather_ctx, surface_ctx, calibration
-    )
-
-    if repository is not None:
-        await _journal(
-            repository,
-            gpx_hash,
-            course,
-            race,
-            athlete,
-            weather_ctx,
-            surface_ctx,
-            outcome,
-            calibration is not None,
-        )
-    return PipelineResult(
-        strategy=outcome.strategy,
-        course=course,
-        athlete=athlete,
-        weather=weather_ctx,
-        surface=surface_ctx,
-    )
 
 
 async def build_comparison(

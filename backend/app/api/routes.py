@@ -2,8 +2,8 @@
 
 - `GET /health` : sonde publique.
 - `GET /athlete` : protégé (Bearer). Vérifie la connexion COROS → renvoie l'`AthleteProfile`.
-- `POST /strategy` : protégé (Bearer). Pipeline complet — upload GPX + date/heure → `PaceStrategy`
-  (profil + altitudes + COROS + météo → LLM avec garde-fous et fallback baseline).
+- `POST /strategy/generate` : reco ancrée (production) ; `POST /strategy/compare` : banc d'essai.
+- `POST /calibration/refresh` + `GET /calibration` : données COROS (prérequis à la génération).
 """
 
 from datetime import datetime
@@ -43,7 +43,6 @@ from app.domain.models import (
     RaceContext,
     RoutePoint,
     StrategyComparison,
-    StrategyResponse,
     TrackPoint,
     WeatherContext,
 )
@@ -58,12 +57,7 @@ from app.domain.ports import (
     WeatherProvider,
 )
 from app.services.calibration_service import CalibrationService
-from app.services.strategy_service import (
-    ComparisonResult,
-    Engine,
-    build_comparison,
-    build_strategy,
-)
+from app.services.strategy_service import ComparisonResult, Engine, build_comparison
 
 router = APIRouter()
 
@@ -123,10 +117,6 @@ def get_weather_provider() -> WeatherProvider:
 def get_historical_weather_provider() -> HistoricalWeatherProvider:
     """Source de météo historique (ERA5) pour la calibration chaleur (axe B)."""
     return OpenMeteoWeatherProvider()
-
-
-def get_strategy_generator() -> StrategyGenerator:
-    return OpenAICompatibleStrategyGenerator()
 
 
 def get_deepseek_generator() -> StrategyGenerator:
@@ -198,49 +188,6 @@ async def get_athlete(
     Si COROS est indisponible, renvoie un profil aux champs nuls (dégradation gracieuse).
     """
     return await provider.get_athlete_profile()
-
-
-@router.post(
-    "/strategy",
-    response_model=StrategyResponse,
-    dependencies=[Depends(require_api_token)],
-)
-async def create_strategy(
-    gpx: Annotated[UploadFile, File(description="Fichier GPX du parcours.")],
-    race_datetime: Annotated[datetime, Form(description="Date/heure de la course (ISO 8601).")],
-    elevation: Annotated[ElevationProvider, Depends(get_elevation_provider)],
-    athlete_provider: Annotated[AthleteProvider, Depends(get_athlete_provider)],
-    weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
-    generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
-    repository: Annotated[PredictionRepository, Depends(get_prediction_repository)],
-    calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
-) -> StrategyResponse:
-    """Pipeline complet : GPX + date/heure → stratégie + contexte (profil, COROS, météo)."""
-    content = await _read_gpx(gpx)
-    race = RaceContext(race_datetime=race_datetime)
-    try:
-        result = await build_strategy(
-            content,
-            race,
-            elevation=elevation,
-            athlete_provider=athlete_provider,
-            weather=weather,
-            generator=generator,
-            repository=repository,
-            calibration=await calibration_store.load(),
-        )
-    except GpxParseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        ) from exc
-
-    return StrategyResponse(
-        strategy=result.strategy,
-        course=_course_summary(result.course),
-        athlete=result.athlete,
-        weather=result.weather,
-    )
 
 
 _DEEPSEEK_LABEL = "DeepSeek-V3"

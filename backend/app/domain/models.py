@@ -246,15 +246,6 @@ class CourseSummary(_Frozen):
     route: list[RoutePoint] = Field(default_factory=list)
 
 
-class StrategyResponse(_Frozen):
-    """Réponse enrichie de `POST /strategy` : stratégie + données qui l'ont nourrie."""
-
-    strategy: PaceStrategy
-    course: CourseSummary
-    athlete: AthleteProfile | None = None
-    weather: WeatherContext | None = None
-
-
 class ComparedStrategy(_Frozen):
     """Une variante (moteur × prompt) de la comparaison (cf. #74)."""
 

@@ -84,7 +84,7 @@ class CorosActivity(SQLModel, table=True):
 
 
 class CalibrationSnapshot(SQLModel, table=True):
-    """Dernier `CalibrationProfile` calculé (lu sur le chemin /strategy, jamais refetché)."""
+    """Dernier `CalibrationProfile` calculé (lu sur le chemin de génération, jamais refetché)."""
 
     __tablename__ = "calibration_snapshots"
 

@@ -15,7 +15,6 @@ from app.api.routes import (
     get_elevation_provider,
     get_llama_generator,
     get_prediction_repository,
-    get_strategy_generator,
     get_weather_provider,
 )
 from app.config import get_settings
@@ -103,7 +102,6 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     app.dependency_overrides[get_elevation_provider] = _FakeElevation
     app.dependency_overrides[get_athlete_provider] = CorosMockAthleteProvider
     app.dependency_overrides[get_weather_provider] = _FakeWeather
-    app.dependency_overrides[get_strategy_generator] = _FailingGenerator
     app.dependency_overrides[get_llama_generator] = _FailingGenerator
     app.dependency_overrides[get_deepseek_generator] = _FailingGenerator
     app.dependency_overrides[get_calibration_store] = NullCalibrationStore
@@ -113,38 +111,18 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     get_settings.cache_clear()
 
 
-def test_strategy_requires_auth(client: TestClient) -> None:
+def test_generate_requires_auth(client: TestClient) -> None:
     response = client.post(
-        "/strategy",
+        "/strategy/generate",
         files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
         data={"race_datetime": "2026-09-01T09:00:00"},
     )
     assert response.status_code == 401
 
 
-def test_strategy_returns_pace_strategy(client: TestClient) -> None:
+def test_generate_rejects_invalid_gpx(client: TestClient) -> None:
     response = client.post(
-        "/strategy",
-        headers=_AUTH,
-        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
-        data={"race_datetime": "2026-09-01T09:00:00"},
-    )
-    assert response.status_code == 200
-    body = response.json()
-    strategy = body["strategy"]
-    assert strategy["distance_km"] > 0
-    assert len(strategy["km_plans"]) >= 1
-    # LLM stubé en échec → fallback baseline déterministe.
-    assert strategy["generated_by"] == "baseline"
-    assert strategy["average_pace_sec_per_km"] > 0
-    # contexte enrichi exposé
-    assert body["course"]["elevation_gain_m"] >= 0
-    assert "weather" in body and "athlete" in body
-
-
-def test_strategy_rejects_invalid_gpx(client: TestClient) -> None:
-    response = client.post(
-        "/strategy",
+        "/strategy/generate",
         headers=_AUTH,
         files={"gpx": ("bad.gpx", "pas du gpx", "application/gpx+xml")},
         data={"race_datetime": "2026-09-01T09:00:00"},

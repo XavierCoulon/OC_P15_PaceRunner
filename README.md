@@ -119,8 +119,8 @@ usage (pas de bascule à faire) :
 - **Banc d'essai (« Comparer »)** → **llama3.1:8b** en **local Ollama** (`COMPARE_LOCAL_MODEL`) +
   DeepSeek-V3 (HF).
 
-> Les variables `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` ne pilotent plus que l'endpoint
-> historique `POST /strategy` (pipeline simple à une stratégie) et `make eval`.
+> Les variables `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` ne pilotent plus que `make eval`
+> (l'évaluation hors-ligne du modèle local sur les parcours types).
 
 ## Qualité
 
@@ -136,8 +136,8 @@ usage (pas de bascule à faire) :
 
 `GET /health` · `POST /strategy/generate` (reco ancrée) · `POST /strategy/compare` (banc d'essai) ·
 `GET /calibration` + `POST /calibration/refresh` (données COROS) · `POST /profile` · `GET /weather` ·
-`GET /athlete` · `GET /history` · `GET /history/{id}` · `GET /stats` · `POST /strategy` (pipeline
-simple) — endpoints protégés par token Bearer.
+`GET /athlete` · `GET /history` · `GET /history/{id}` · `GET /stats` — endpoints protégés par
+token Bearer.
 
 ## Suivi de projet & livrables
 

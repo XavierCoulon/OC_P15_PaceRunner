@@ -46,7 +46,7 @@ class ActivityHistoryProvider(Protocol):
 
 @runtime_checkable
 class CalibrationStore(Protocol):
-    """Persiste et relit le `CalibrationProfile` précalculé (lu sur le chemin /strategy)."""
+    """Persiste et relit le `CalibrationProfile` précalculé (lu sur le chemin de génération)."""
 
     async def load(self) -> CalibrationProfile | None: ...
     async def save(self, profile: CalibrationProfile) -> None: ...

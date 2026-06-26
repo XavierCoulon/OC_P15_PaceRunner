@@ -1,6 +1,6 @@
 """Service de calibration (#76) : ingestion de l'historique COROS + calcul du profil.
 
-Hors chemin /strategy. `ingest()` récupère les résumés de course et les persiste (upsert
+Hors du chemin de génération. `ingest()` récupère les résumés de course et les persiste (upsert
 idempotent, incrémental borné par le dernier `start_timestamp`). `compute()` agrège les
 courses en base en un `CalibrationProfile` (axes A & C) et le persiste. `refresh()` enchaîne
 les deux : c'est ce qu'appelle l'endpoint admin.
