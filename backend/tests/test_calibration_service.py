@@ -8,6 +8,13 @@ from app.domain.models import ActivitySummary, AthleteProfile, CalibrationProfil
 from app.services.calibration_service import CalibrationService
 
 
+class _FakeWeather:
+    async def historical_daily_temps(
+        self, lat: float, lon: float, start: date, end: date
+    ) -> dict[date, float]:
+        return {}
+
+
 def _activity(label: str, ts: int) -> ActivitySummary:
     return ActivitySummary(
         label_id=label,
@@ -45,6 +52,9 @@ class _FakeRepo:
     async def all_activities(self) -> list[ActivitySummary]:
         return list(self.store.values())
 
+    async def set_weather(self, temps: dict[str, float]) -> int:
+        return len(temps)
+
     async def status(self) -> CalibrationStatus:
         return CalibrationStatus(
             activity_count=len(self.store),
@@ -74,7 +84,8 @@ class _FakeStore:
 
 def _service(provider: _FakeProvider, repo: _FakeRepo) -> tuple[CalibrationService, _FakeStore]:
     store = _FakeStore()
-    return CalibrationService(provider, repo, _FakeAthlete(), store), store
+    service = CalibrationService(provider, repo, _FakeAthlete(), store, _FakeWeather())
+    return service, store
 
 
 async def test_backfill_then_incremental_is_idempotent() -> None:

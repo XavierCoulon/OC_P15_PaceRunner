@@ -55,13 +55,25 @@ _HARD_PCT = 3.0
 _EASY_PCT = -3.0
 
 
-def _weather_factor(weather: WeatherContext | None) -> float:
-    """Facteur de ralentissement dû aux conditions (1.0 = pas d'effet)."""
+def _weather_factor(
+    weather: WeatherContext | None, calibration: CalibrationProfile | None = None
+) -> float:
+    """Facteur de ralentissement dû aux conditions (1.0 = pas d'effet).
+
+    La pénalité chaleur utilise la **sensibilité perso** (#76, axe B) si calibrée, sinon la
+    constante générique de littérature.
+    """
     if weather is None:
         return 1.0
+    heat_threshold = _HEAT_THRESHOLD_C
+    heat_per_deg = _HEAT_PER_DEG
+    if calibration is not None and calibration.heat_coeff_per_deg is not None:
+        heat_per_deg = calibration.heat_coeff_per_deg
+        if calibration.heat_threshold_c is not None:
+            heat_threshold = calibration.heat_threshold_c
     penalty = 0.0
-    if weather.temperature_c is not None and weather.temperature_c > _HEAT_THRESHOLD_C:
-        penalty += (weather.temperature_c - _HEAT_THRESHOLD_C) * _HEAT_PER_DEG
+    if weather.temperature_c is not None and weather.temperature_c > heat_threshold:
+        penalty += (weather.temperature_c - heat_threshold) * heat_per_deg
     if weather.wind_speed_kmh is not None and weather.wind_speed_kmh > _WIND_THRESHOLD_KMH:
         penalty += (weather.wind_speed_kmh - _WIND_THRESHOLD_KMH) * _WIND_PER_KMH
     if weather.precipitation_mm is not None and weather.precipitation_mm > _RAIN_THRESHOLD_MM:
@@ -136,7 +148,7 @@ def build_baseline_strategy(
     bins = _distance_bins(calibration)
     base_pace = threshold * _race_pace_factor(course.distance_km, bins)
     freshness = _freshness_factor(recovery)
-    weather_factor = _weather_factor(weather)
+    weather_factor = _weather_factor(weather, calibration)
 
     km_plans: list[KmPlan] = []
     total_time = 0.0

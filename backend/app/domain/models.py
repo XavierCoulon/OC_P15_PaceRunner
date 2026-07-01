@@ -110,6 +110,9 @@ class ActivitySummary(_Frozen):
     start_lon: float | None = Field(default=None, ge=-180, le=180)
     location: str | None = None
     elevation_gain_m: float | None = Field(default=None, ge=0)
+    weather_temperature_c: float | None = Field(
+        default=None, description="Température ERA5 jointe (axe B), remplie après ingestion météo."
+    )
 
 
 class CalibrationProfile(_Frozen):

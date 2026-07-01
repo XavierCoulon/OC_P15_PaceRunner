@@ -26,6 +26,11 @@ _ACUTE_DAYS = 28
 _CHRONIC_DAYS = 84
 _MIN_CHRONIC_RUNS = 4
 
+# Axe B — sensibilité chaleur : pente du résidu d'allure vs (température − 20 °C).
+_HEAT_THRESHOLD_C = 20.0
+_MIN_HOT_SAMPLES = 8  # nb minimal de courses au-dessus du seuil pour fiabiliser la pente
+_HEAT_COEFF_MAX = 0.03  # plafond de sécurité (3 %/°C)
+
 
 def _utcnow_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
@@ -67,6 +72,63 @@ def _distance_factors(
     return factors if calibrated else None
 
 
+def _pace_factor(distance_km: float, bins: tuple[tuple[float, float], ...]) -> float:
+    for upper, factor in bins:
+        if distance_km <= upper:
+            return factor
+    return bins[-1][1]
+
+
+def _slope(points: list[tuple[float, float]]) -> float | None:
+    """Pente d'une régression linéaire simple (moindres carrés). `None` si x sans variance."""
+    n = len(points)
+    if n < 2:
+        return None
+    mean_x = sum(x for x, _ in points) / n
+    mean_y = sum(y for _, y in points) / n
+    var_x = sum((x - mean_x) ** 2 for x, _ in points)
+    if var_x <= 0:
+        return None
+    cov = sum((x - mean_x) * (y - mean_y) for x, y in points)
+    return cov / var_x
+
+
+def _heat_coeff(
+    activities: list[ActivitySummary],
+    threshold: float,
+    distance_factors: list[tuple[float, float]] | None,
+) -> float | None:
+    """Sensibilité chaleur : pente du **résidu d'allure** vs (température − 20 °C).
+
+    Résidu = (allure réelle − allure attendue) / attendue, l'attendue étant le seuil × le facteur
+    de distance (perso si calibré, sinon générique). On régresse ce résidu contre l'excès de
+    température au-dessus de 20 °C. Renvoie `None` (→ constante générique) si trop peu de jours
+    chauds ou si la pente n'est pas positive (pas de preuve de pénalité chaleur).
+    """
+    bins = (
+        tuple((float(up), float(f)) for up, f in distance_factors)
+        if distance_factors
+        else DISTANCE_BINS
+    )
+    points: list[tuple[float, float]] = []
+    hot = 0
+    for a in activities:
+        if a.avg_pace_sec_per_km is None or a.weather_temperature_c is None:
+            continue
+        expected = threshold * _pace_factor(a.distance_km, bins)
+        residual = (a.avg_pace_sec_per_km - expected) / expected
+        excess = max(0.0, a.weather_temperature_c - _HEAT_THRESHOLD_C)
+        points.append((excess, residual))
+        if excess > 0:
+            hot += 1
+    if hot < _MIN_HOT_SAMPLES:
+        return None
+    slope = _slope(points)
+    if slope is None or slope <= 0:
+        return None
+    return round(min(slope, _HEAT_COEFF_MAX), 5)
+
+
 def _fitness_trend(activities: list[ActivitySummary], today: date) -> float | None:
     """ACWR : charge des 28 derniers jours / charge aiguë-équivalente sur 84 jours (distance)."""
     chronic = [a for a in activities if (today - a.activity_date).days < _CHRONIC_DAYS]
@@ -91,10 +153,17 @@ def compute_calibration(
         if threshold_pace_sec_per_km
         else None
     )
+    heat_coeff = (
+        _heat_coeff(activities, threshold_pace_sec_per_km, distance_factors)
+        if threshold_pace_sec_per_km
+        else None
+    )
     return CalibrationProfile(
         computed_at=_utcnow_naive(),
         sample_count=len(activities),
         distance_factors=distance_factors,
+        heat_coeff_per_deg=heat_coeff,
+        heat_threshold_c=_HEAT_THRESHOLD_C if heat_coeff is not None else None,
         fitness_trend=_fitness_trend(activities, today),
     )
 
@@ -108,6 +177,12 @@ def calibration_note(profile: CalibrationProfile | None) -> str | None:
         parts.append(
             f"allures de référence calibrées sur tes meilleurs efforts "
             f"({profile.sample_count} courses analysées)"
+        )
+    if profile.heat_coeff_per_deg is not None:
+        threshold_c = profile.heat_threshold_c or _HEAT_THRESHOLD_C
+        parts.append(
+            f"sensibilité à la chaleur mesurée "
+            f"(+{profile.heat_coeff_per_deg * 100:.1f} %/°C au-delà de {threshold_c:.0f} °C)"
         )
     trend = profile.fitness_trend
     if trend is not None:

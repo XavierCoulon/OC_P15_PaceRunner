@@ -10,7 +10,7 @@ Suit le pattern de `db/history.py` : variante SQL (Neon) + variante nulle (base 
 
 from typing import Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel import col
 
@@ -24,6 +24,7 @@ class ActivityRepository(Protocol):
     async def upsert(self, activities: list[ActivitySummary]) -> int: ...
     async def last_synced_timestamp(self) -> int | None: ...
     async def all_activities(self) -> list[ActivitySummary]: ...
+    async def set_weather(self, temps: dict[str, float]) -> int: ...
     async def status(self) -> CalibrationStatus: ...
 
 
@@ -113,9 +114,24 @@ class SqlActivityRepository:
                 start_lon=row.start_lon,
                 location=row.location,
                 elevation_gain_m=row.elevation_gain_m,
+                weather_temperature_c=row.weather_temperature_c,
             )
             for row in rows
         ]
+
+    async def set_weather(self, temps: dict[str, float]) -> int:
+        """Renseigne la température jointe (axe B) par `label_id`. Renvoie le nb écrit."""
+        if not temps:
+            return 0
+        async with session_factory()() as session:
+            for label_id, temp in temps.items():
+                await session.execute(
+                    update(CorosActivity)
+                    .where(col(CorosActivity.label_id) == label_id)
+                    .values(weather_temperature_c=temp)
+                )
+            await session.commit()
+        return len(temps)
 
     async def status(self) -> CalibrationStatus:
         async with session_factory()() as session:
@@ -154,6 +170,9 @@ class NullActivityRepository:
 
     async def all_activities(self) -> list[ActivitySummary]:
         return []
+
+    async def set_weather(self, temps: dict[str, float]) -> int:
+        return 0
 
     async def status(self) -> CalibrationStatus:
         return CalibrationStatus(
