@@ -2,8 +2,8 @@
 
 - `GET /health` : sonde publique.
 - `GET /athlete` : protégé (Bearer). Vérifie la connexion COROS → renvoie l'`AthleteProfile`.
-- `POST /strategy` : protégé (Bearer). Pipeline complet — upload GPX + date/heure → `PaceStrategy`
-  (profil + altitudes + COROS + météo → LLM avec garde-fous et fallback baseline).
+- `POST /strategy/generate` : reco ancrée (production) ; `POST /strategy/compare` : banc d'essai.
+- `POST /calibration/refresh` + `GET /calibration` : données COROS (prérequis à la génération).
 """
 
 from datetime import datetime
@@ -43,7 +43,6 @@ from app.domain.models import (
     RaceContext,
     RoutePoint,
     StrategyComparison,
-    StrategyResponse,
     TrackPoint,
     WeatherContext,
 )
@@ -58,7 +57,7 @@ from app.domain.ports import (
     WeatherProvider,
 )
 from app.services.calibration_service import CalibrationService
-from app.services.strategy_service import Engine, build_comparison, build_strategy
+from app.services.strategy_service import ComparisonResult, Engine, build_comparison
 
 router = APIRouter()
 
@@ -120,12 +119,8 @@ def get_historical_weather_provider() -> HistoricalWeatherProvider:
     return OpenMeteoWeatherProvider()
 
 
-def get_strategy_generator() -> StrategyGenerator:
-    return OpenAICompatibleStrategyGenerator()
-
-
-def get_hf_strategy_generator() -> StrategyGenerator:
-    """Second moteur (HF Inference) pour la comparaison ; clé = `hf_token`."""
+def get_deepseek_generator() -> StrategyGenerator:
+    """Moteur DeepSeek via HF Inference (reco ancrée + variante CoT) ; clé = `hf_token`."""
     settings = get_settings()
     return OpenAICompatibleStrategyGenerator(
         settings,
@@ -133,6 +128,12 @@ def get_hf_strategy_generator() -> StrategyGenerator:
         model=settings.compare_hf_model,
         api_key=settings.hf_token.get_secret_value() if settings.hf_token else None,
     )
+
+
+def get_llama_generator() -> StrategyGenerator:
+    """Moteur Ollama llama3.1:8b pour la variante autonome de comparaison."""
+    settings = get_settings()
+    return OpenAICompatibleStrategyGenerator(settings, model=settings.compare_local_model)
 
 
 def get_prediction_repository() -> PredictionRepository:
@@ -189,47 +190,60 @@ async def get_athlete(
     return await provider.get_athlete_profile()
 
 
+_DEEPSEEK_LABEL = "DeepSeek-V3"
+
+
+def _to_comparison(result: ComparisonResult) -> StrategyComparison:
+    return StrategyComparison(
+        course=_course_summary(result.course),
+        athlete=result.athlete,
+        weather=result.weather,
+        baseline=result.baseline,
+        recommended=result.recommended,
+        variants=[
+            ComparedStrategy(
+                label=e.label, model=e.model, mode=e.mode, strategy=e.strategy, error=e.error
+            )
+            for e in result.engines
+        ],
+    )
+
+
 @router.post(
-    "/strategy",
-    response_model=StrategyResponse,
+    "/strategy/generate",
+    response_model=StrategyComparison,
     dependencies=[Depends(require_api_token)],
 )
-async def create_strategy(
+async def generate_recommended(
     gpx: Annotated[UploadFile, File(description="Fichier GPX du parcours.")],
     race_datetime: Annotated[datetime, Form(description="Date/heure de la course (ISO 8601).")],
     elevation: Annotated[ElevationProvider, Depends(get_elevation_provider)],
     athlete_provider: Annotated[AthleteProvider, Depends(get_athlete_provider)],
     weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
-    generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
-    repository: Annotated[PredictionRepository, Depends(get_prediction_repository)],
+    deepseek: Annotated[StrategyGenerator, Depends(get_deepseek_generator)],
     calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
-) -> StrategyResponse:
-    """Pipeline complet : GPX + date/heure → stratégie + contexte (profil, COROS, météo)."""
+    repository: Annotated[PredictionRepository, Depends(get_prediction_repository)],
+) -> StrategyComparison:
+    """« Générer » : reco ancrée (baseline + DeepSeek, tactique + narratif). Un seul appel LLM."""
     content = await _read_gpx(gpx)
     race = RaceContext(race_datetime=race_datetime)
     try:
-        result = await build_strategy(
+        result = await build_comparison(
             content,
             race,
             elevation=elevation,
             athlete_provider=athlete_provider,
             weather=weather,
-            generator=generator,
-            repository=repository,
+            engines=[],
+            recommended_generator=deepseek,
             calibration=await calibration_store.load(),
+            repository=repository,
         )
     except GpxParseError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
-
-    return StrategyResponse(
-        strategy=result.strategy,
-        course=_course_summary(result.course),
-        athlete=result.athlete,
-        weather=result.weather,
-    )
+    return _to_comparison(result)
 
 
 @router.post(
@@ -243,20 +257,20 @@ async def compare_strategies(
     elevation: Annotated[ElevationProvider, Depends(get_elevation_provider)],
     athlete_provider: Annotated[AthleteProvider, Depends(get_athlete_provider)],
     weather: Annotated[WeatherProvider, Depends(get_weather_provider)],
-    local_generator: Annotated[StrategyGenerator, Depends(get_strategy_generator)],
-    hf_generator: Annotated[StrategyGenerator, Depends(get_hf_strategy_generator)],
+    llama: Annotated[StrategyGenerator, Depends(get_llama_generator)],
+    deepseek: Annotated[StrategyGenerator, Depends(get_deepseek_generator)],
     calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
 ) -> StrategyComparison:
-    """Compare la baseline à 3 variantes moteur × prompt (génération brute, #74).
-
-    Variantes : modèle local en autonome, modèle local en CoT, modèle HF en CoT.
-    """
+    """« Comparer » : comparatif brut baseline vs llama3.1:8b autonome vs DeepSeek CoT (#74)."""
     settings = get_settings()
-    local, hf = settings.llm_model, settings.compare_hf_model
     engines = [
-        Engine(f"{local} · autonome", local, local_generator, "autonomous"),
-        Engine(f"{local} · CoT", local, local_generator, "cot"),
-        Engine(f"{hf} · CoT", hf, hf_generator, "cot"),
+        Engine(
+            f"{settings.compare_local_model} · autonome",
+            settings.compare_local_model,
+            llama,
+            "autonomous",
+        ),
+        Engine(f"{_DEEPSEEK_LABEL} · CoT", settings.compare_hf_model, deepseek, "cot"),
     ]
     content = await _read_gpx(gpx)
     race = RaceContext(race_datetime=race_datetime)
@@ -272,22 +286,9 @@ async def compare_strategies(
         )
     except GpxParseError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
-
-    return StrategyComparison(
-        course=_course_summary(result.course),
-        athlete=result.athlete,
-        weather=result.weather,
-        baseline=result.baseline,
-        variants=[
-            ComparedStrategy(
-                label=e.label, model=e.model, mode=e.mode, strategy=e.strategy, error=e.error
-            )
-            for e in result.engines
-        ],
-    )
+    return _to_comparison(result)
 
 
 @router.post(
@@ -376,9 +377,12 @@ async def get_stats(
 )
 async def get_calibration(
     repository: Annotated[ActivityRepository, Depends(get_activity_repository)],
+    calibration_store: Annotated[CalibrationStore, Depends(get_calibration_store)],
 ) -> CalibrationStatus:
-    """État des données COROS en base (prérequis de la génération, bloc 1 du front)."""
-    return await repository.status()
+    """État des données COROS + profil de calibration utilisé par la stratégie (bloc 1 du front)."""
+    status_ = await repository.status()
+    status_.calibration = await calibration_store.load()
+    return status_
 
 
 @router.post(
@@ -402,9 +406,11 @@ async def refresh_calibration(
     service = CalibrationService(
         provider, repository, athlete_provider, calibration_store, weather_provider
     )
-    ingested, _profile = await service.refresh(incremental=incremental)
+    ingested, profile = await service.refresh(incremental=incremental)
+    status_ = await repository.status()
+    status_.calibration = profile
     return CalibrationRefreshResult(
         fetched=ingested.fetched,
         inserted=ingested.inserted,
-        status=await repository.status(),
+        status=status_,
     )

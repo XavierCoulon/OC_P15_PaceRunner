@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     open_meteo_air_quality_url: str = "https://air-quality-api.open-meteo.com/v1/air-quality"
     open_meteo_archive_url: str = "https://archive-api.open-meteo.com/v1/archive"
     http_timeout_seconds: float = 10.0
+    # COROS MCP fait plusieurs allers-retours par appel (handshake + tool) → marge plus large.
+    coros_timeout_seconds: float = 20.0
 
     # LLM — API OpenAI-compatible (Ollama local par défaut ; HF par config, cf. ADR-4)
     llm_base_url: str = "http://localhost:11434/v1"
@@ -55,10 +57,11 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     llm_timeout_seconds: float = 120.0
 
-    # Comparaison (#74) : second moteur HF appelé en parallèle du moteur local.
-    # Clé = `hf_token`. Le moteur « local » de la comparaison = `llm_*` ci-dessus.
+    # Comparaison (#74) : second moteur HF (DeepSeek) appelé à côté du moteur local.
+    # Clé = `hf_token`. `compare_local_model` = modèle Ollama de la variante autonome (≠ llm_model).
     compare_hf_base_url: str = "https://router.huggingface.co/v1"
-    compare_hf_model: str = "meta-llama/Llama-3.3-70B-Instruct"
+    compare_hf_model: str = "deepseek-ai/DeepSeek-V3-0324"
+    compare_local_model: str = "llama3.1:8b"
 
 
 @lru_cache

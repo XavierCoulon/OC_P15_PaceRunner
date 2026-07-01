@@ -23,11 +23,16 @@
   OAuth réalisé une fois — cf. spike #13 et ADR C-ADR2). Accès via **client MCP httpx maison** (le SDK
   officiel bloque sur COROS). Le serveur **fait tourner le refresh token à chaque refresh** → stockage
   durable du token (l'access_token dure ~30 j).
-- **Outils COROS retenus** (sondés en live parmi 15 disponibles) : `queryFitnessAssessmentOverview`
-  (capacité), `queryRecoveryStatus` (fraîcheur jour J), `queryUserInfo` (poids → *grade-adjusted pace*) ;
-  `querySportRecords` en option (calibrage sur allures récentes). Écartés : signaux redondants de
-  fraîcheur (HRV, sommeil, stress, FC), `queryTrainingLoadAssessment` (indisponible/`isError`),
-  `queryDevices`/`queryTrainingSchedule` (hors besoin). Principe : n'injecter que de la donnée utile.
+- **Outils COROS retenus** (sondés en live parmi 15 disponibles) :
+  - *Forme du jour* — `queryFitnessAssessmentOverview` (allure seuil, VO2max), `queryRecoveryStatus`
+    (fraîcheur jour J), `queryUserInfo` (poids).
+  - *Historique* — **`querySportRecords` est devenu central** (#76) : ingéré (≈ 1300 courses, batch
+    puis incrémental) pour **calibrer** la baseline (allures de référence par distance, sensibilité
+    chaleur, tendance de forme). On récupère par course : date, distance, durée, **allure et FC
+    moyennes**, coordonnées. *(La FC est collectée mais non encore exploitée dans un calcul.)*
+  - Écartés : signaux redondants de fraîcheur (HRV, sommeil, stress), `queryTrainingLoadAssessment`
+    (indisponible/`isError`), `getActivityDetail`/flux détaillés (axe D « courbe de pente perso »
+    **reporté**, trop peu de trails), `queryDevices`/`queryTrainingSchedule` (hors besoin).
 - **Météo Open-Meteo — routage par horizon** (la course peut être dans plusieurs mois) : ≤ 16 j →
   **prévision** réelle ; au-delà → **climatologie ERA5** (moyenne de la même date calendaire sur N
   années + min/max), avec comparatif **« même date l'an dernier »** en repère. Le besoin n'est donc pas
@@ -66,6 +71,8 @@
 | Donnée | Origine | Caractère personnel | Où elle vit |
 |---|---|---|---|
 | Forme athlète (VO2max, allure seuil, récup.) | COROS | **Donnée de santé / sportive** (sensible) | Récupérée à la volée + **snapshot** journalisé (Neon) |
+| Historique de courses (date, distance, allure, **FC moy**, coords) | COROS | **Donnée de santé + localisation** (sensible) | Persisté en base — table `coros_activities` (#76), pour la calibration |
+| Profil de calibration (facteurs agrégés) | Dérivé | Agrégé (peu identifiant) | Persisté — table `calibration_snapshots` |
 | Tracé GPX (lat/lon) | Fichier coureur | **Localisation** (potentiellement domicile) | Traité en mémoire ; hash + métriques journalisés |
 | Date/heure & lieu de course | Saisie / GPX | Localisation + habitude | Journalisé (Neon) |
 
@@ -74,8 +81,10 @@
 - App **mono-utilisateur** : l'**unique personne concernée est le propriétaire**, qui est aussi le
   responsable de traitement. Pas de tiers, pas de collecte de données d'autrui → **surface RGPD réduite**.
 - **Base légale** : intérêt/usage personnel du propriétaire sur ses propres données.
-- **Minimisation** : on ne journalise que le **strict nécessaire** au suivi/monitoring (métriques,
-  snapshot de forme, contextes) ; pas de stockage du fichier GPX brut (seulement un **hash** + le profil dérivé).
+- **Minimisation** : on ne journalise que le **strict nécessaire** (métriques, snapshot de forme,
+  contextes) ; pas de stockage du fichier GPX brut (seulement un **hash** + le profil dérivé).
+  L'historique COROS (#76) élargit la surface (FC, lieux), donc on **borne** : résumés de course +
+  bins agrégés + snapshot — **jamais** les flux haute résolution (FC/allure seconde-par-seconde).
 
 ### Rétention & anonymisation du journal (Neon)
 

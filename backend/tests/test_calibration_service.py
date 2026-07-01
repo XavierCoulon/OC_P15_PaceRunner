@@ -61,7 +61,7 @@ class _FakeRepo:
             first_activity_date=None,
             last_activity_date=None,
             last_synced_at=None,
-            trail_sample_count=0,
+            trail_count=0,
             calibration_computed_at=None,
         )
 

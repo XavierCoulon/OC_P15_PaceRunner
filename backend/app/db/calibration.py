@@ -142,7 +142,7 @@ class SqlActivityRepository:
                         func.min(CorosActivity.activity_date),
                         func.max(CorosActivity.activity_date),
                         func.max(CorosActivity.created_at),
-                        func.count().filter(col(CorosActivity.streams_fetched)),
+                        func.count().filter(col(CorosActivity.sport_type) == 102),
                     )
                 )
             ).one()
@@ -154,7 +154,7 @@ class SqlActivityRepository:
             first_activity_date=first_date,
             last_activity_date=last_date,
             last_synced_at=last_synced,
-            trail_sample_count=trail,
+            trail_count=trail,
             calibration_computed_at=computed_at,
         )
 
@@ -180,6 +180,6 @@ class NullActivityRepository:
             first_activity_date=None,
             last_activity_date=None,
             last_synced_at=None,
-            trail_sample_count=0,
+            trail_count=0,
             calibration_computed_at=None,
         )

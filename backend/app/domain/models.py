@@ -84,7 +84,7 @@ class AthleteProfile(_Frozen):
 
     threshold_pace_sec_per_km: float | None = Field(default=None, gt=0)
     vo2max: float | None = Field(default=None, gt=0)
-    resting_hr: int | None = Field(default=None, gt=0)
+    resting_hr: int | None = Field(default=None, gt=0)  # réservé — non peuplé/exploité à ce jour
     recovery_pct: float | None = Field(default=None, ge=0, le=100)
     recovery_status: str | None = Field(default=None, description="Niveau de récupération (texte).")
     weight_kg: float | None = Field(default=None, gt=0, description="Poids (grade-adjusted pace).")
@@ -125,17 +125,20 @@ class CalibrationProfile(_Frozen):
 
     computed_at: datetime | None = None
     sample_count: int = Field(default=0, ge=0, description="Nb de courses ayant nourri le calcul.")
-    # Axe A — décroissance allure↔distance (remplace les facteurs littéraires) & relation FC↔allure.
+    anchor_pace_sec_per_km: float | None = Field(
+        default=None, gt=0, description="Allure seuil COROS au calcul (ancre des facteurs)."
+    )
+    # Axe A — décroissance allure↔distance (remplace les facteurs littéraires).
     distance_factors: list[tuple[float, float]] | None = Field(
         default=None, description="Paliers (distance_max_km, facteur) calibrés sur efforts réels."
     )
-    hr_pace_slope: float | None = None
+    hr_pace_slope: float | None = None  # réservé (relation FC↔allure) — non calculé à ce jour
     # Axe B — sensibilité chaleur personnelle.
     heat_coeff_per_deg: float | None = Field(default=None, ge=0)
     heat_threshold_c: float | None = None
     # Axe C — tendance de forme.
     fitness_trend: float | None = None
-    # Axe D — courbe allure-pente personnelle.
+    # Axe D — courbe allure-pente personnelle : réservé, non calculé (trop peu de trails, #80).
     grade_curve: list[float] | None = None
 
 
@@ -189,6 +192,23 @@ class KmPlan(_Frozen):
     note: str | None = None
 
 
+class CourseSection(_Frozen):
+    """Tranche homogène du parcours (km consécutifs de même effort) — découpage déterministe."""
+
+    start_km: int = Field(ge=1)
+    end_km: int = Field(ge=1)
+    effort: str = Field(description="Intensité dominante (easy / steady / hard).")
+    avg_gradient_pct: float
+
+
+class SectionNote(_Frozen):
+    """Consigne de coaching en langage naturel pour une tranche (narratif LLM, bornes figées)."""
+
+    start_km: int = Field(ge=1)
+    end_km: int = Field(ge=1)
+    note: str
+
+
 class PaceStrategy(_Frozen):
     """Stratégie d'allure complète renvoyée au coureur."""
 
@@ -198,6 +218,10 @@ class PaceStrategy(_Frozen):
     km_plans: list[KmPlan] = Field(min_length=1)
     summary: str | None = None
     generated_by: str = Field(description="Origine de la stratégie : « llm » ou « baseline ».")
+    section_narrative: list[SectionNote] = Field(
+        default_factory=list,
+        description="Narratif de course par tranche (assemblé serveur ; bornes déterministes).",
+    )
 
 
 class RoutePoint(_Frozen):
@@ -222,15 +246,6 @@ class CourseSummary(_Frozen):
     route: list[RoutePoint] = Field(default_factory=list)
 
 
-class StrategyResponse(_Frozen):
-    """Réponse enrichie de `POST /strategy` : stratégie + données qui l'ont nourrie."""
-
-    strategy: PaceStrategy
-    course: CourseSummary
-    athlete: AthleteProfile | None = None
-    weather: WeatherContext | None = None
-
-
 class ComparedStrategy(_Frozen):
     """Une variante (moteur × prompt) de la comparaison (cf. #74)."""
 
@@ -252,4 +267,5 @@ class StrategyComparison(_Frozen):
     athlete: AthleteProfile | None = None
     weather: WeatherContext | None = None
     baseline: PaceStrategy
+    recommended: PaceStrategy | None = None
     variants: list[ComparedStrategy] = Field(default_factory=list)

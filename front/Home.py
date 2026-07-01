@@ -1,8 +1,9 @@
 """Front Streamlit — page « Génération de stratégie ».
 
-Le bouton « Générer » affiche d'abord le contexte du parcours (distance, D+, carte, profil de
-dénivelé), puis lance la **comparaison** : baseline déterministe + variantes LLM (moteur × prompt
-autonome/CoT), avec la forme COROS et la météo jour J (cf. #74).
+Deux actions : **« Générer »** affiche le contexte (parcours, forme COROS, météo) puis la
+**stratégie recommandée** (baseline calibrée + DeepSeek ancré : tactique bornée + narratif par
+tranche) ; **« Comparer »** affiche le banc d'essai #74 (baseline vs llama3.1:8b autonome vs
+DeepSeek CoT). Le résultat est mémorisé en `session_state` (persiste entre les pages).
 """
 
 from datetime import date, datetime
@@ -16,8 +17,11 @@ import streamlit as st
 from api_client import (
     BackendError,
     compare_strategies,
+    fetch_athlete,
     fetch_calibration_status,
     fetch_profile,
+    fetch_weather,
+    generate_plan,
 )
 from app.config import get_settings
 from app.domain.models import (
@@ -28,6 +32,7 @@ from app.domain.models import (
     StrategyComparison,
     WeatherContext,
 )
+from state import CompareResult, GenResult
 from viz import weather_summary
 
 _WEATHER_SOURCE_LABEL = {
@@ -188,8 +193,50 @@ def _render_weather_history(weather: WeatherContext | None) -> None:
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
+def _render_recommended(strat: PaceStrategy) -> None:
+    """Stratégie de production : baseline calibrée + tactique LLM bornée + narratif par tranche."""
+    st.subheader("🎯 Stratégie recommandée")
+    cols = st.columns(2)
+    cols[0].metric("Temps estimé", _fmt_duration(strat.estimated_time_sec))
+    cols[1].metric("Allure moyenne", _fmt_pace(strat.average_pace_sec_per_km))
+    origin = (
+        "Baseline calibrée + tactique IA"
+        if strat.generated_by == "llm"
+        else "Baseline déterministe (repli garde-fou)"
+    )
+    st.caption(f"Origine : {origin}.")
+    if strat.summary:
+        st.caption(strat.summary)
+    if strat.section_narrative:
+        st.markdown("**Plan de course par tranche :**")
+        for s in strat.section_narrative:
+            label = f"km {s.start_km}" if s.start_km == s.end_km else f"km {s.start_km}–{s.end_km}"
+            st.markdown(f"- **{label}** — {s.note}")
+
+    st.markdown("**Allure cible par kilomètre :**")
+    effort_label = {"easy": "facile", "steady": "régulier", "hard": "soutenu"}
+    table = pd.DataFrame(
+        [
+            {
+                "km": p.km_index,
+                "pente %": round(p.gradient_pct, 1),
+                "allure": _fmt_pace(p.target_pace_sec_per_km),
+                "effort": effort_label.get(p.effort, p.effort),
+            }
+            for p in strat.km_plans
+        ]
+    )
+    st.dataframe(table, use_container_width=True, hide_index=True)
+
+
 def _render_comparison(comp: StrategyComparison) -> None:
     st.subheader("⚖️ Comparaison : baseline vs modèles × prompts")
+    st.info(
+        "🔬 **Banc d'essai (#74)** — llama3.1:8b et DeepSeek conçoivent en mode **autonome brut : "
+        "sans la baseline, sans garde-fou, sans repli**. Sur terrain raide, ces variantes "
+        "sous-estiment le coût des fortes pentes et deviennent **trop optimistes** (surtout le "
+        "8b). Pour ta stratégie fiable, utilise « **Générer** » (DeepSeek ancré sur la baseline)."
+    )
 
     # (titre, stratégie | None, erreur | None) — baseline = référence déterministe.
     entries: list[tuple[str, PaceStrategy | None, str | None]] = [
@@ -252,6 +299,24 @@ def _render_comparison(comp: StrategyComparison) -> None:
             st.caption(f"**{title}** — {strat.summary}")
 
 
+def _render_generate(result: GenResult) -> None:
+    """Réaffiche un résultat « Générer » mémorisé (profil + forme + météo + reco)."""
+    cols = st.columns(2)
+    cols[0].metric("Distance", f"{result.profile.distance_km:.2f} km")
+    cols[1].metric("Dénivelé +", f"{result.profile.elevation_gain_m:.0f} m")
+    _render_elevation_note(result.profile)
+    _render_map(result.profile.route)
+    _render_elevation_profile(result.profile)
+    _render_athlete(result.athlete)
+    _render_weather(result.weather)
+    if result.recommended is not None:
+        _render_recommended(result.recommended)
+
+
+def _reset_result() -> None:
+    st.session_state.pop("result", None)
+
+
 st.set_page_config(page_title="PaceRunner", page_icon="🏃", layout="wide")
 
 st.title("🏃 PaceRunner")
@@ -286,16 +351,20 @@ with st.sidebar:
         )
         race_time = col_time.time_input("Heure de départ", value=dtime(9, 0))
 
-        submitted = st.form_submit_button(
+        generate_clicked = st.form_submit_button(
             "Générer la stratégie", type="primary", disabled=not data_ready
         )
+        compare_clicked = st.form_submit_button("Comparer les moteurs", disabled=not data_ready)
         st.caption(
-            "Génère et compare : baseline + local (autonome) + local (CoT) + HF (CoT) — "
-            "3 appels LLM, comptez ~1-2 min."
+            "**Générer** : ta stratégie (baseline calibrée + DeepSeek : tranches + commentaires). "
+            "**Comparer** : baseline vs llama3.1:8b autonome vs DeepSeek CoT (courbe + tableau)."
         )
 
 
-if submitted:
+if "result" in st.session_state:
+    st.sidebar.button("🔄 Réinitialiser l'affichage", on_click=_reset_result)
+
+if generate_clicked or compare_clicked:
     if gpx_file is None:
         st.warning("Merci de fournir un fichier GPX.")
     elif isinstance(race_date, date) and isinstance(race_time, dtime):
@@ -303,33 +372,64 @@ if submitted:
         filename = gpx_file.name
         race_iso = datetime.combine(race_date, race_time).isoformat()
 
-        # 1) Profil + carte (rapide) — affiché dès que prêt.
-        try:
-            with st.spinner("📍 Analyse du parcours…"):
-                profile = fetch_profile(gpx_bytes=gpx_bytes, filename=filename)
-        except BackendError as exc:
-            st.error(str(exc))
-            st.stop()
+        if compare_clicked:
+            # « Comparer » : uniquement le comparatif (courbe + tableau).
+            try:
+                with st.spinner("⚖️ Comparaison baseline vs llama3.1:8b vs DeepSeek…"):
+                    comp = compare_strategies(
+                        gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
+                    )
+            except BackendError as exc:
+                st.error(str(exc))
+                st.stop()
+            st.session_state["result"] = CompareResult(comp)
+            _render_comparison(comp)
+        else:
+            # « Générer » : profil → forme + météo (dès prêts) → stratégie. Affichage progressif.
+            try:
+                with st.spinner("📍 Analyse du parcours…"):
+                    profile = fetch_profile(gpx_bytes=gpx_bytes, filename=filename)
+            except BackendError as exc:
+                st.error(str(exc))
+                st.stop()
 
-        cols = st.columns(2)
-        cols[0].metric("Distance", f"{profile.distance_km:.2f} km")
-        cols[1].metric("Dénivelé +", f"{profile.elevation_gain_m:.0f} m")
-        _render_elevation_note(profile)
-        _render_map(profile.route)
-        _render_elevation_profile(profile)
+            cols = st.columns(2)
+            cols[0].metric("Distance", f"{profile.distance_km:.2f} km")
+            cols[1].metric("Dénivelé +", f"{profile.elevation_gain_m:.0f} m")
+            _render_elevation_note(profile)
+            _render_map(profile.route)
+            _render_elevation_profile(profile)
 
-        # 2) Comparaison (baseline + 3 variantes LLM) — le plus long.
-        try:
-            with st.spinner("⚖️ Baseline + 3 variantes LLM (local autonome/CoT, HF CoT)…"):
-                comp = compare_strategies(
-                    gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
-                )
-        except BackendError as exc:
-            st.error(str(exc))
-            st.stop()
+            athlete = None
+            weather = None
+            try:
+                with st.spinner("🏃 Forme COROS + météo jour J…"):
+                    athlete = fetch_athlete()
+                    weather = fetch_weather(
+                        lat=profile.start_lat,
+                        lon=profile.start_lon,
+                        race_datetime_iso=race_iso,
+                    )
+                _render_athlete(athlete)
+                _render_weather(weather)
+            except BackendError as exc:
+                st.warning(f"Contexte indisponible ({exc}).")
 
-        _render_athlete(comp.athlete)
-        _render_weather(comp.weather)
-        _render_comparison(comp)
+            try:
+                with st.spinner("🎯 Stratégie recommandée (DeepSeek), ~10 s…"):
+                    comp = generate_plan(
+                        gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
+                    )
+            except BackendError as exc:
+                st.error(str(exc))
+                st.stop()
+
+            st.session_state["result"] = GenResult(profile, athlete, weather, comp.recommended)
+            if comp.recommended is not None:
+                _render_recommended(comp.recommended)
+elif isinstance(st.session_state.get("result"), GenResult):
+    _render_generate(st.session_state["result"])
+elif isinstance(st.session_state.get("result"), CompareResult):
+    _render_comparison(st.session_state["result"].comp)
 else:
-    st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer la stratégie ».")
+    st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer » ou « Comparer ».")

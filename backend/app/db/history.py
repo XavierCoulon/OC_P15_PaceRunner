@@ -74,13 +74,14 @@ class SqlHistoryReader:
                         func.count(),
                         func.count().filter(col(PredictionRun.generated_by) == "llm"),
                         func.count().filter(col(PredictionRun.guardrails_passed)),
+                        func.count().filter(col(PredictionRun.calibration_used)),
                         func.avg(PredictionRun.deviation_vs_baseline_pct),
                         func.avg(PredictionRun.latency_ms),
                     )
                 )
             ).one()
-        total, llm, guarded, avg_dev, avg_lat = row
-        return _to_stats(total, llm, guarded, avg_dev, avg_lat)
+        total, llm, guarded, calibrated, avg_dev, avg_lat = row
+        return _to_stats(total, llm, guarded, calibrated, avg_dev, avg_lat)
 
 
 class NullHistoryReader:
@@ -91,7 +92,7 @@ class NullHistoryReader:
         return None
 
     async def compute_stats(self) -> RunStats:
-        return _to_stats(0, 0, 0, None, None)
+        return _to_stats(0, 0, 0, 0, None, None)
 
 
 def _pct(part: int, total: int) -> float:
@@ -99,7 +100,12 @@ def _pct(part: int, total: int) -> float:
 
 
 def _to_stats(
-    total: int, llm: int, guarded: int, avg_dev: float | None, avg_lat: float | None
+    total: int,
+    llm: int,
+    guarded: int,
+    calibrated: int,
+    avg_dev: float | None,
+    avg_lat: float | None,
 ) -> RunStats:
     return RunStats(
         total_runs=total,
@@ -107,6 +113,7 @@ def _to_stats(
         baseline_runs=total - llm,
         llm_share_pct=_pct(llm, total),
         guardrails_passed_pct=_pct(guarded, total),
+        calibration_used_pct=_pct(calibrated, total),
         avg_deviation_vs_baseline_pct=round(avg_dev, 1) if avg_dev is not None else None,
         avg_latency_ms=round(avg_lat, 1) if avg_lat is not None else None,
     )

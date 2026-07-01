@@ -61,6 +61,31 @@ async def test_provider_full_degradation() -> None:
     assert profile.weight_kg is None
 
 
+class _FlakyClient:
+    """Échoue les `fail_first` premiers appels de chaque outil, puis renvoie la réponse."""
+
+    def __init__(self, responses: dict[str, str], fail_first: int = 1) -> None:
+        self._responses = responses
+        self._remaining: dict[str, int] = {}
+        self._fail_first = fail_first
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
+        left = self._remaining.get(name, self._fail_first)
+        if left > 0:
+            self._remaining[name] = left - 1
+            raise RuntimeError("transient COROS error")
+        return self._responses.get(name, "")
+
+
+async def test_provider_retries_one_transient_failure() -> None:
+    # Un échec transitoire par outil est rattrapé par le retry (le champ est bien rempli).
+    provider = CorosAthleteProvider(client=_FlakyClient(_RESPONSES, fail_first=1))
+    profile = await provider.get_athlete_profile()
+    assert profile.threshold_pace_sec_per_km == 292.0
+    assert profile.recovery_pct == 87.0
+    assert profile.weight_kg == 71.2
+
+
 async def test_mock_provider_returns_seeded_profile() -> None:
     profile = await CorosMockAthleteProvider().get_athlete_profile()
     assert profile.threshold_pace_sec_per_km == 292.0

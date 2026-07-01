@@ -1,8 +1,8 @@
 """Test d'intégration E2E du pipeline (H2).
 
-Exécute `build_strategy` avec les **vrais adapters** ; seules les API externes sont
-simulées via respx (Open Topo Data, Open-Meteo, LLM). COROS se dégrade gracieusement
-(pas d'identifiants en test) → AthleteProfile vide, le pipeline continue.
+Exécute `build_comparison` (chemin de production « Générer ») avec les **vrais adapters** ;
+seules les API externes sont simulées via respx (Open Topo Data, Open-Meteo, LLM). COROS se
+dégrade gracieusement (pas d'identifiants en test) → AthleteProfile vide, le pipeline continue.
 """
 
 import json
@@ -16,7 +16,7 @@ from app.adapters.llm_openai import OpenAICompatibleStrategyGenerator
 from app.adapters.open_meteo import OpenMeteoWeatherProvider
 from app.adapters.open_topo_data import OpenTopoDataProvider
 from app.domain.models import RaceContext
-from app.services.strategy_service import PipelineResult, build_strategy
+from app.services.strategy_service import ComparisonResult, build_comparison
 
 _OTD = "https://api.opentopodata.org/v1"
 _FORECAST = "https://api.open-meteo.com/v1/forecast"
@@ -120,14 +120,15 @@ def _llm_handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
 
-async def _run() -> PipelineResult:
-    return await build_strategy(
+async def _run() -> ComparisonResult:
+    return await build_comparison(
         _gpx(),
         RaceContext(race_datetime=_when()),
         elevation=OpenTopoDataProvider(),
         athlete_provider=CorosAthleteProvider(),
         weather=OpenMeteoWeatherProvider(),
-        generator=OpenAICompatibleStrategyGenerator(),
+        engines=[],
+        recommended_generator=OpenAICompatibleStrategyGenerator(),
     )
 
 
@@ -141,10 +142,11 @@ async def test_pipeline_end_to_end_with_real_adapters() -> None:
 
     result = await _run()
 
-    assert result.strategy.generated_by == "llm"
-    assert result.strategy.distance_km > 0
-    assert len(result.strategy.km_plans) >= 1
-    assert result.strategy.average_pace_sec_per_km > 0
+    assert result.recommended is not None
+    assert result.recommended.generated_by == "llm"
+    assert result.recommended.distance_km > 0
+    assert len(result.recommended.km_plans) >= 1
+    assert result.recommended.average_pace_sec_per_km > 0
     # contexte exposé : météo (tier prévision) et profil
     assert result.weather is not None and result.weather.source == "forecast"
     assert result.course.elevation_gain_m >= 0
@@ -164,5 +166,6 @@ async def test_pipeline_falls_back_to_baseline_when_llm_fails() -> None:
 
     result = await _run()
 
-    assert result.strategy.generated_by == "baseline"
-    assert len(result.strategy.km_plans) >= 1
+    assert result.recommended is not None
+    assert result.recommended.generated_by == "baseline"
+    assert len(result.recommended.km_plans) >= 1

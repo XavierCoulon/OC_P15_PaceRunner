@@ -1,6 +1,6 @@
 """Sécurité de l'API : authentification par token Bearer.
 
-Dépendance FastAPI à attacher aux endpoints protégés (ex. `/strategy`, `/history`).
+Dépendance FastAPI à attacher aux endpoints protégés (ex. `/strategy/generate`, `/history`).
 `/health` reste public. Le token attendu provient de la configuration (`API_TOKEN`).
 """
 

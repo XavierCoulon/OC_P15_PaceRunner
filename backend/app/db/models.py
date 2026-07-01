@@ -47,6 +47,7 @@ class PredictionRun(SQLModel, table=True):
     latency_ms: float | None = None
     guardrails_passed: bool = False
     deviation_vs_baseline_pct: float | None = None
+    calibration_used: bool = Field(default=False, index=True)
     error: str | None = None
 
 
@@ -76,14 +77,14 @@ class CorosActivity(SQLModel, table=True):
     location: str | None = None
     elevation_gain_m: float | None = None
 
-    # Flux détaillés (axe D) — récupérés à la demande puis binnés.
+    # Flux détaillés (axe D) — réservé : jamais renseigné à ce jour (axe D reporté, #80).
     streams_fetched: bool = Field(default=False)
     # Météo historique jointe (axe B) — remplie lors de l'ingestion météo.
     weather_temperature_c: float | None = None
 
 
 class CalibrationSnapshot(SQLModel, table=True):
-    """Dernier `CalibrationProfile` calculé (lu sur le chemin /strategy, jamais refetché)."""
+    """Dernier `CalibrationProfile` calculé (lu sur le chemin de génération, jamais refetché)."""
 
     __tablename__ = "calibration_snapshots"
 

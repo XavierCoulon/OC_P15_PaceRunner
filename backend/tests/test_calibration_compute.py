@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from app.domain.models import (
     ActivitySummary,
     AthleteProfile,
+    CalibrationProfile,
     CourseProfile,
     ElevationSegment,
 )
@@ -68,6 +69,16 @@ def test_distance_factors_from_best_efforts() -> None:
     assert cal_half == generic_half
 
 
+def test_distance_factors_are_monotonic() -> None:
+    # Beaucoup de 10 km rapides (~280) mais aucun semi → le semi retombe sur générique (1.05),
+    # qui ne doit PAS être plus rapide que le palier 10 km calibré (~0.93).
+    activities = [_act(f"f{i}", dist=9.0 + i * 0.1, pace=280.0, days_ago=i * 2) for i in range(6)]
+    profile = compute_calibration(activities, threshold_pace_sec_per_km=300.0, today=_TODAY)
+    assert profile.distance_factors is not None
+    factors = [f for _, f in profile.distance_factors]
+    assert factors == sorted(factors)  # non décroissants : jamais plus rapide quand la distance ↑
+
+
 def test_no_distance_factors_when_threshold_missing() -> None:
     activities = [_act("f1", dist=10.0, pace=300.0, days_ago=10)]
     profile = compute_calibration(activities, threshold_pace_sec_per_km=None, today=_TODAY)
@@ -117,3 +128,14 @@ def test_baseline_uses_calibrated_distance_factor() -> None:
     calibrated = build_baseline_strategy(course, athlete, calibration=profile)
     # Meilleurs efforts ~270/300 = 0.9 < facteur générique 1.0 → baseline calibrée plus rapide.
     assert calibrated.average_pace_sec_per_km < plain.average_pace_sec_per_km
+
+
+def test_baseline_falls_back_to_calibration_anchor_when_threshold_missing() -> None:
+    # Allure seuil du jour indisponible (COROS flaky) → on reprend l'ancre de la calibration
+    # (300 s) plutôt que le défaut générique (360 s) → baseline plus rapide et juste.
+    course = _course(10.0)
+    no_threshold = AthleteProfile()  # threshold_pace_sec_per_km = None
+    cal = CalibrationProfile(anchor_pace_sec_per_km=300.0)
+    with_anchor = build_baseline_strategy(course, no_threshold, calibration=cal)
+    generic = build_baseline_strategy(course, no_threshold)
+    assert with_anchor.average_pace_sec_per_km < generic.average_pace_sec_per_km

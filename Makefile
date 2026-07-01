@@ -16,20 +16,10 @@ run: ## Lance l'API en local (rechargement auto) — PORT=8000 par défaut
 front: ## Lance le front Streamlit (port 7860)
 	PYTHONPATH=backend uv run streamlit run front/Home.py --server.port 7860
 
-dev: ## Lance en LOCAL (Ollama) : Ollama si éteint + backend (:8000) + front (:7860)
+dev: ## Lance la stack : Ollama (llama3.1:8b) si éteint + backend (:8000) + front (:7860)
 	@curl -s http://localhost:11434/api/version >/dev/null 2>&1 || \
 		{ echo "→ Ollama éteint : démarrage en arrière-plan"; nohup ollama serve >/tmp/ollama-pacerunner.log 2>&1 & sleep 2; }
 	@export LLM_BASE_URL=http://localhost:11434/v1 LLM_MODEL=llama3.1:8b LLM_API_KEY=; \
-	trap 'kill 0' EXIT INT TERM; \
-	uv run uvicorn app.main:app --app-dir backend --port $(PORT) & \
-	PYTHONPATH=backend uv run streamlit run front/Home.py --server.port 7860 --server.headless true & \
-	wait
-
-dev-hf: ## Lance avec HF Inference : backend (:8000) + front (:7860) — token depuis .env (HF_TOKEN)
-	@grep -qE '^HF_TOKEN=.+' .env || { echo "HF_TOKEN absent ou vide dans .env"; exit 1; }
-	@export LLM_BASE_URL=https://router.huggingface.co/v1 \
-		LLM_MODEL=meta-llama/Llama-3.1-8B-Instruct \
-		LLM_API_KEY="$$(grep -E '^HF_TOKEN=' .env | cut -d= -f2-)"; \
 	trap 'kill 0' EXIT INT TERM; \
 	uv run uvicorn app.main:app --app-dir backend --port $(PORT) & \
 	PYTHONPATH=backend uv run streamlit run front/Home.py --server.port 7860 --server.headless true & \

@@ -109,4 +109,5 @@ async def test_journal_swallows_repository_errors() -> None:
         None,
         None,
         outcome,
+        True,
     )

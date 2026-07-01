@@ -7,14 +7,18 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.adapters.coros_mock import CorosMockAthleteProvider
+from app.adapters.prediction_repo import NullPredictionRepository
 from app.api.routes import (
     get_athlete_provider,
+    get_calibration_store,
+    get_deepseek_generator,
     get_elevation_provider,
-    get_hf_strategy_generator,
-    get_strategy_generator,
+    get_llama_generator,
+    get_prediction_repository,
     get_weather_provider,
 )
 from app.config import get_settings
+from app.db.calibration import NullCalibrationStore
 from app.domain.models import (
     AthleteProfile,
     CalibrationProfile,
@@ -98,44 +102,27 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     app.dependency_overrides[get_elevation_provider] = _FakeElevation
     app.dependency_overrides[get_athlete_provider] = CorosMockAthleteProvider
     app.dependency_overrides[get_weather_provider] = _FakeWeather
-    app.dependency_overrides[get_strategy_generator] = _FailingGenerator
+    app.dependency_overrides[get_llama_generator] = _FailingGenerator
+    app.dependency_overrides[get_deepseek_generator] = _FailingGenerator
+    app.dependency_overrides[get_calibration_store] = NullCalibrationStore
+    app.dependency_overrides[get_prediction_repository] = NullPredictionRepository
     yield TestClient(app)
     app.dependency_overrides.clear()
     get_settings.cache_clear()
 
 
-def test_strategy_requires_auth(client: TestClient) -> None:
+def test_generate_requires_auth(client: TestClient) -> None:
     response = client.post(
-        "/strategy",
+        "/strategy/generate",
         files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
         data={"race_datetime": "2026-09-01T09:00:00"},
     )
     assert response.status_code == 401
 
 
-def test_strategy_returns_pace_strategy(client: TestClient) -> None:
+def test_generate_rejects_invalid_gpx(client: TestClient) -> None:
     response = client.post(
-        "/strategy",
-        headers=_AUTH,
-        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
-        data={"race_datetime": "2026-09-01T09:00:00"},
-    )
-    assert response.status_code == 200
-    body = response.json()
-    strategy = body["strategy"]
-    assert strategy["distance_km"] > 0
-    assert len(strategy["km_plans"]) >= 1
-    # LLM stubé en échec → fallback baseline déterministe.
-    assert strategy["generated_by"] == "baseline"
-    assert strategy["average_pace_sec_per_km"] > 0
-    # contexte enrichi exposé
-    assert body["course"]["elevation_gain_m"] >= 0
-    assert "weather" in body and "athlete" in body
-
-
-def test_strategy_rejects_invalid_gpx(client: TestClient) -> None:
-    response = client.post(
-        "/strategy",
+        "/strategy/generate",
         headers=_AUTH,
         files={"gpx": ("bad.gpx", "pas du gpx", "application/gpx+xml")},
         data={"race_datetime": "2026-09-01T09:00:00"},
@@ -174,9 +161,9 @@ def test_profile_rejects_invalid_gpx(client: TestClient) -> None:
     assert response.status_code == 422
 
 
-def test_compare_returns_baseline_and_variants(client: TestClient) -> None:
-    app.dependency_overrides[get_strategy_generator] = _ValidGenerator
-    app.dependency_overrides[get_hf_strategy_generator] = _ValidGenerator
+def test_compare_returns_baseline_and_two_variants(client: TestClient) -> None:
+    app.dependency_overrides[get_llama_generator] = _ValidGenerator
+    app.dependency_overrides[get_deepseek_generator] = _ValidGenerator
     response = client.post(
         "/strategy/compare",
         headers=_AUTH,
@@ -186,18 +173,73 @@ def test_compare_returns_baseline_and_variants(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["baseline"]["generated_by"] == "baseline"
-    # 3 variantes : local autonome, local CoT, HF CoT.
+    # « Comparer » : pas de reco ancrée, seulement le comparatif.
+    assert body["recommended"] is None
+    # 2 variantes : llama3.1:8b autonome, DeepSeek CoT.
     variants = body["variants"]
-    assert [v["mode"] for v in variants] == ["autonomous", "cot", "cot"]
+    assert [v["mode"] for v in variants] == ["autonomous", "cot"]
     for v in variants:
         assert v["error"] is None
         assert v["strategy"]["generated_by"] == f"llm_{v['mode']}"
-        assert len(v["strategy"]["km_plans"]) == len(body["course"]["segments"])
+
+
+class _RecordingRepository:
+    def __init__(self) -> None:
+        self.runs: list[dict[str, object]] = []
+
+    async def save_run(self, **kwargs: object) -> None:
+        self.runs.append(kwargs)
+
+
+def test_generate_journals_one_run(client: TestClient) -> None:
+    repo = _RecordingRepository()
+    app.dependency_overrides[get_deepseek_generator] = _ValidGenerator
+    app.dependency_overrides[get_prediction_repository] = lambda: repo
+    response = client.post(
+        "/strategy/generate",
+        headers=_AUTH,
+        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
+        data={"race_datetime": "2026-09-01T09:00:00"},
+    )
+    assert response.status_code == 200
+    # La reco de production est journalisée (monitoring) ; la calibration est absente (NullStore).
+    assert len(repo.runs) == 1
+    assert repo.runs[0]["calibration_used"] is False
+
+
+def test_compare_does_not_journal(client: TestClient) -> None:
+    repo = _RecordingRepository()
+    app.dependency_overrides[get_llama_generator] = _ValidGenerator
+    app.dependency_overrides[get_deepseek_generator] = _ValidGenerator
+    app.dependency_overrides[get_prediction_repository] = lambda: repo
+    response = client.post(
+        "/strategy/compare",
+        headers=_AUTH,
+        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
+        data={"race_datetime": "2026-09-01T09:00:00"},
+    )
+    assert response.status_code == 200
+    assert repo.runs == []  # « Comparer » = benchmark, non journalisé
+
+
+def test_generate_returns_only_recommended(client: TestClient) -> None:
+    app.dependency_overrides[get_deepseek_generator] = _ValidGenerator
+    response = client.post(
+        "/strategy/generate",
+        headers=_AUTH,
+        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
+        data={"race_datetime": "2026-09-01T09:00:00"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    # « Générer » = un seul appel : la reco ancrée, sans variante de comparaison.
+    assert body["recommended"]["generated_by"] in ("llm", "baseline")
+    assert len(body["recommended"]["km_plans"]) == len(body["course"]["segments"])
+    assert body["variants"] == []
 
 
 def test_compare_reports_variant_failure(client: TestClient) -> None:
-    # Variantes en échec → chacune porte une erreur, baseline toujours présente.
-    app.dependency_overrides[get_hf_strategy_generator] = _FailingGenerator
+    # Générateurs en échec (fixture) → chaque variante porte une erreur, baseline présente.
     response = client.post(
         "/strategy/compare",
         headers=_AUTH,
