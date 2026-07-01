@@ -14,6 +14,7 @@ from app.adapters.gpx_parser import parse_gpx
 from app.domain.models import (
     AthleteProfile,
     CourseProfile,
+    GenerationMode,
     PaceStrategy,
     RaceContext,
     SurfaceContext,
@@ -27,7 +28,12 @@ from app.domain.ports import (
     SurfaceProvider,
     WeatherProvider,
 )
-from app.services.strategy_generation import GenerationOutcome, generate_strategy
+from app.services.baseline_strategy import build_baseline_strategy
+from app.services.strategy_generation import (
+    GenerationOutcome,
+    generate_raw,
+    generate_strategy,
+)
 
 _logger = logging.getLogger("pacerunner.journal")
 
@@ -41,6 +47,38 @@ class PipelineResult:
     athlete: AthleteProfile | None
     weather: WeatherContext | None
     surface: SurfaceContext | None
+
+
+@dataclass(frozen=True)
+class Engine:
+    """Une variante à comparer : libellé + modèle + générateur + mode de prompt."""
+
+    label: str
+    model: str
+    generator: StrategyGenerator
+    mode: GenerationMode
+
+
+@dataclass(frozen=True)
+class EngineResult:
+    """Stratégie brute d'une variante (ou l'erreur rencontrée)."""
+
+    label: str
+    model: str
+    mode: GenerationMode
+    strategy: PaceStrategy | None
+    error: str | None
+
+
+@dataclass(frozen=True)
+class ComparisonResult:
+    """Baseline (référence) + stratégies autonomes des moteurs comparés (cf. #74)."""
+
+    course: CourseProfile
+    athlete: AthleteProfile | None
+    weather: WeatherContext | None
+    baseline: PaceStrategy
+    engines: list[EngineResult]
 
 
 async def build_strategy(
@@ -78,6 +116,58 @@ async def build_strategy(
         athlete=athlete,
         weather=weather_ctx,
         surface=surface_ctx,
+    )
+
+
+async def build_comparison(
+    gpx_content: str,
+    race: RaceContext,
+    *,
+    elevation: ElevationProvider,
+    athlete_provider: AthleteProvider,
+    weather: WeatherProvider,
+    engines: list[Engine],
+    surface: SurfaceProvider | None = None,
+) -> ComparisonResult:
+    """Enrichit une seule fois le contexte, puis compare la baseline aux moteurs LLM (#74).
+
+    Chaque moteur génère en mode **autonome brut** (sans baseline, sans garde-fou ni repli).
+    Toute panne d'un moteur devient son `error` ; les autres colonnes restent disponibles.
+    """
+    course = parse_gpx(gpx_content)
+    course = await elevation.clean_elevations(course)
+    athlete = await athlete_provider.get_athlete_profile()
+    weather_ctx = await weather.get_weather(course.start_lat, course.start_lon, race.race_datetime)
+    surface_ctx = await surface.get_surface(course) if surface is not None else None
+
+    baseline = build_baseline_strategy(course, athlete, weather_ctx)
+
+    results: list[EngineResult] = []
+    for engine in engines:
+        strategy: PaceStrategy | None = None
+        error: str | None = None
+        try:
+            strategy = await generate_raw(
+                engine.generator, course, race, athlete, weather_ctx, surface_ctx, engine.mode
+            )
+        except Exception as exc:  # mode brut : pas de repli, on remonte l'échec de la variante
+            error = f"{type(exc).__name__}: {exc}"
+        results.append(
+            EngineResult(
+                label=engine.label,
+                model=engine.model,
+                mode=engine.mode,
+                strategy=strategy,
+                error=error,
+            )
+        )
+
+    return ComparisonResult(
+        course=course,
+        athlete=athlete,
+        weather=weather_ctx,
+        baseline=baseline,
+        engines=results,
     )
 
 

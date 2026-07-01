@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     llm_timeout_seconds: float = 120.0
 
+    # Comparaison (#74) : second moteur HF appelé en parallèle du moteur local.
+    # Clé = `hf_token`. Le moteur « local » de la comparaison = `llm_*` ci-dessus.
+    compare_hf_base_url: str = "https://router.huggingface.co/v1"
+    compare_hf_model: str = "meta-llama/Llama-3.3-70B-Instruct"
+
 
 @lru_cache
 def get_settings() -> Settings:

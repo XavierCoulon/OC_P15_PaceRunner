@@ -1,7 +1,8 @@
 """Front Streamlit — page « Génération de stratégie ».
 
-K1 : layout + formulaire. K2 : appel backend. K3 : profil de dénivelé + courbe d'allure.
-Le tableau km/km (K4) et le bandeau météo (réponse à enrichir) viennent ensuite.
+Le bouton « Générer » affiche d'abord le contexte du parcours (distance, D+, carte, profil de
+dénivelé), puis lance la **comparaison** : baseline déterministe + variantes LLM (moteur × prompt
+autonome/CoT), avec la forme COROS et la météo jour J (cf. #74).
 """
 
 from datetime import date, datetime
@@ -14,10 +15,8 @@ import streamlit as st
 
 from api_client import (
     BackendError,
-    fetch_athlete,
+    compare_strategies,
     fetch_profile,
-    fetch_weather,
-    generate_strategy,
 )
 from app.config import get_settings
 from app.domain.models import (
@@ -25,9 +24,10 @@ from app.domain.models import (
     CourseSummary,
     PaceStrategy,
     RoutePoint,
+    StrategyComparison,
     WeatherContext,
 )
-from viz import km_table_rows, strategy_rows, weather_summary
+from viz import weather_summary
 
 _WEATHER_SOURCE_LABEL = {
     "forecast": "Prévision",
@@ -87,6 +87,30 @@ def _render_map(route: list[RoutePoint]) -> None:
         api_keys={"mapbox": token.get_secret_value()},
     )
     st.pydeck_chart(deck)
+
+
+def _render_elevation_profile(course: CourseSummary) -> None:
+    """Profil de dénivelé cumulé du parcours (niveau parcours, indépendant des stratégies)."""
+    if not course.segments:
+        return
+    rows = []
+    elev = 0.0
+    for s in course.segments:
+        elev += s.elevation_gain_m - s.elevation_loss_m
+        rows.append(
+            {"km": s.km_index, "elevation_m": round(elev, 1), "gradient_pct": s.gradient_pct}
+        )
+    st.subheader("Profil de dénivelé")
+    chart = (
+        alt.Chart(pd.DataFrame(rows))
+        .mark_area(opacity=0.4, color="#6c8ebf", line={"color": "#3b5b8c"})
+        .encode(
+            x=alt.X("km:Q", title="Kilomètre"),
+            y=alt.Y("elevation_m:Q", title="Dénivelé cumulé (m)"),
+            tooltip=["km", "elevation_m", alt.Tooltip("gradient_pct", title="pente %")],
+        )
+    )
+    st.altair_chart(chart, use_container_width=True)
 
 
 def _render_athlete(athlete: AthleteProfile | None) -> None:
@@ -163,47 +187,68 @@ def _render_weather_history(weather: WeatherContext | None) -> None:
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
-def _render_charts(strategy: PaceStrategy) -> None:
-    df = pd.DataFrame(strategy_rows(strategy))
+def _render_comparison(comp: StrategyComparison) -> None:
+    st.subheader("⚖️ Comparaison : baseline vs modèles × prompts")
 
-    st.subheader("Profil de dénivelé")
-    elevation = (
-        alt.Chart(df)
-        .mark_area(opacity=0.4, color="#6c8ebf", line={"color": "#3b5b8c"})
+    # (titre, stratégie | None, erreur | None) — baseline = référence déterministe.
+    entries: list[tuple[str, PaceStrategy | None, str | None]] = [
+        ("🛡️ Baseline déterministe", comp.baseline, None),
+    ]
+    for v in comp.variants:
+        icon = "🧠" if v.mode == "cot" else "💻"
+        entries.append((f"{icon} {v.label}", v.strategy, v.error))
+
+    cols = st.columns(len(entries))
+    for col, (title, strat, err) in zip(cols, entries, strict=True):
+        col.markdown(f"**{title}**")
+        if strat is None:
+            col.error(f"Échec : {err}")
+        else:
+            col.metric("Temps estimé", _fmt_duration(strat.estimated_time_sec))
+            col.metric("Allure moyenne", _fmt_pace(strat.average_pace_sec_per_km))
+
+    st.caption(
+        "⚠️ Variantes en mode **brut** (aucun garde-fou, aucun repli). "
+        "« autonome » = one-shot ; « CoT » = raisonnement pente imposé."
+    )
+
+    # Courbes d'allure superposées (forme longue → gère des longueurs différentes).
+    rows = [
+        {"km": p.km_index, "Allure (s/km)": p.target_pace_sec_per_km, "Stratégie": title}
+        for title, strat, _ in entries
+        if strat is not None
+        for p in strat.km_plans
+    ]
+    chart = (
+        alt.Chart(pd.DataFrame(rows))
+        .mark_line(point=True)
         .encode(
             x=alt.X("km:Q", title="Kilomètre"),
-            y=alt.Y("elevation_m:Q", title="Dénivelé cumulé (m)"),
-            tooltip=["km", "elevation_m", alt.Tooltip("gradient_pct", title="pente %")],
+            y=alt.Y("Allure (s/km):Q", scale=alt.Scale(reverse=True)),
+            color=alt.Color("Stratégie:N", title="Stratégie"),
+            tooltip=["km", "Stratégie", "Allure (s/km)"],
         )
     )
-    st.altair_chart(elevation, use_container_width=True)
+    st.altair_chart(chart, use_container_width=True)
 
-    st.subheader("Allure conseillée par km")
-    # Ligne continue (neutre) + points colorés par effort : colorer la ligne elle-même
-    # la découperait en segments séparés par couleur (trous aux changements d'effort).
-    pace_base = alt.Chart(df).encode(
-        x=alt.X("km:Q", title="Kilomètre"),
-        # axe inversé : une allure plus rapide (moins de secondes) est plus haute
-        y=alt.Y("pace_sec:Q", title="Allure (s/km)", scale=alt.Scale(reverse=True)),
-    )
-    pace_line = pace_base.mark_line(color="#9aa0a6")
-    pace_points = pace_base.mark_point(filled=True, size=70, opacity=1).encode(
-        color=alt.Color("effort:N", title="Effort"),
-        tooltip=["km", alt.Tooltip("pace_label", title="allure"), "effort", "gradient_pct"],
-    )
-    st.altair_chart(pace_line + pace_points, use_container_width=True)
+    # Tableau km/km côte à côte (uniquement les stratégies alignées sur le parcours).
+    n = len(comp.baseline.km_plans)
+    table: dict[str, list[object]] = {
+        "km": [p.km_index for p in comp.baseline.km_plans],
+        "pente %": [p.gradient_pct for p in comp.baseline.km_plans],
+    }
+    for title, strat, _ in entries:
+        if strat is not None and len(strat.km_plans) == n:
+            table[title] = [_fmt_pace(p.target_pace_sec_per_km) for p in strat.km_plans]
+        elif strat is not None:
+            st.caption(
+                f"« {title} » : {len(strat.km_plans)} km ≠ {n} segments → exclue du tableau."
+            )
+    st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
 
-
-def _render_km_table(strategy: PaceStrategy) -> None:
-    st.subheader("Stratégie kilomètre par kilomètre")
-    table = pd.DataFrame(km_table_rows(strategy))
-    st.dataframe(table, use_container_width=True, hide_index=True)
-    st.download_button(
-        "⬇️ Exporter en CSV",
-        data=table.to_csv(index=False).encode("utf-8"),
-        file_name="strategie_pacerunner.csv",
-        mime="text/csv",
-    )
+    for title, strat, _ in entries:
+        if strat is not None and strat.summary:
+            st.caption(f"**{title}** — {strat.summary}")
 
 
 st.set_page_config(page_title="PaceRunner", page_icon="🏃", layout="wide")
@@ -228,6 +273,10 @@ with st.sidebar:
         race_time = col_time.time_input("Heure de départ", value=dtime(9, 0))
 
         submitted = st.form_submit_button("Générer la stratégie", type="primary")
+        st.caption(
+            "Génère et compare : baseline + local (autonome) + local (CoT) + HF (CoT) — "
+            "3 appels LLM, comptez ~1-2 min."
+        )
 
 
 if submitted:
@@ -251,51 +300,20 @@ if submitted:
         cols[1].metric("Dénivelé +", f"{profile.elevation_gain_m:.0f} m")
         _render_elevation_note(profile)
         _render_map(profile.route)
+        _render_elevation_profile(profile)
 
-        # 2) Forme COROS.
-        with st.spinner("🏃 Récupération de la forme COROS…"):
-            try:
-                athlete = fetch_athlete()
-            except BackendError:
-                athlete = None
-        _render_athlete(athlete)
-
-        # 3) Météo jour J.
-        with st.spinner("🌤️ Récupération de la météo jour J…"):
-            try:
-                weather = fetch_weather(
-                    lat=profile.start_lat, lon=profile.start_lon, race_datetime_iso=race_iso
-                )
-            except BackendError:
-                weather = None
-        _render_weather(weather)
-
-        # 4) Stratégie (génération LLM — le plus long).
+        # 2) Comparaison (baseline + 3 variantes LLM) — le plus long.
         try:
-            with st.spinner("🧠 Génération de la stratégie (IA)…"):
-                response = generate_strategy(
-                    gpx_bytes=gpx_bytes,
-                    filename=filename,
-                    race_datetime_iso=race_iso,
+            with st.spinner("⚖️ Baseline + 3 variantes LLM (local autonome/CoT, HF CoT)…"):
+                comp = compare_strategies(
+                    gpx_bytes=gpx_bytes, filename=filename, race_datetime_iso=race_iso
                 )
         except BackendError as exc:
             st.error(str(exc))
             st.stop()
 
-        strategy = response.strategy
-        st.session_state["strategy"] = response.model_dump()
-        badge = "🤖 Stratégie IA" if strategy.generated_by == "llm" else "🛡️ Repli déterministe"
-        st.success(f"Stratégie générée — **{badge}**")
-        if strategy.generated_by != "llm":
-            st.warning("Le modèle n'a pas produit de stratégie valide : repli sur la baseline.")
-
-        cols = st.columns(2)
-        cols[0].metric("Temps estimé", _fmt_duration(strategy.estimated_time_sec))
-        cols[1].metric("Allure moyenne", _fmt_pace(strategy.average_pace_sec_per_km))
-        if strategy.summary:
-            st.caption(strategy.summary)
-
-        _render_charts(strategy)
-        _render_km_table(strategy)
+        _render_athlete(comp.athlete)
+        _render_weather(comp.weather)
+        _render_comparison(comp)
 else:
     st.info("⬅️ Renseigne les paramètres dans la barre latérale, puis « Générer la stratégie ».")

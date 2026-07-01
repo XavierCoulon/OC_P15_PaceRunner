@@ -11,7 +11,13 @@ import httpx
 
 from app.config import get_settings
 from app.db.read_models import RunStats, RunSummary
-from app.domain.models import AthleteProfile, CourseSummary, StrategyResponse, WeatherContext
+from app.domain.models import (
+    AthleteProfile,
+    CourseSummary,
+    StrategyComparison,
+    StrategyResponse,
+    WeatherContext,
+)
 
 _TIMEOUT_SECONDS = 180.0
 _GET_TIMEOUT_SECONDS = 30.0
@@ -50,6 +56,34 @@ def generate_strategy(
         return StrategyResponse.model_validate(response.json())
     except ValueError as exc:
         raise BackendError("Réponse du backend invalide.") from exc
+
+
+def compare_strategies(
+    *, gpx_bytes: bytes, filename: str, race_datetime_iso: str
+) -> StrategyComparison:
+    """Compare baseline / LLM ancré / LLM autonome brut (`POST /strategy/compare`, cf. #74)."""
+    settings = get_settings()
+    token = settings.api_token.get_secret_value() if settings.api_token else ""
+    url = f"{settings.backend_url}/strategy/compare"
+    files = {"gpx": (filename, gpx_bytes, "application/gpx+xml")}
+    data = {"race_datetime": race_datetime_iso}
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = httpx.post(
+            url, files=files, data=data, headers=headers, timeout=_TIMEOUT_SECONDS
+        )
+    except httpx.RequestError as exc:
+        raise BackendError(f"Backend injoignable ({exc}).") from exc
+    if response.status_code == 401:
+        raise BackendError("Authentification refusée — vérifie le token API.")
+    if response.status_code == 422:
+        raise BackendError(f"Fichier GPX invalide : {_detail(response)}")
+    if response.status_code != 200:
+        raise BackendError(f"Erreur backend (HTTP {response.status_code}).")
+    try:
+        return StrategyComparison.model_validate(response.json())
+    except ValueError as exc:
+        raise BackendError("Réponse de comparaison invalide.") from exc
 
 
 def fetch_profile(*, gpx_bytes: bytes, filename: str) -> CourseSummary:

@@ -1,7 +1,22 @@
 # 01 — Cadrage & besoins (C1)
 
 > Livrable de la compétence **C1 — Collecter les besoins métiers et analyser le contexte**.
-> Ce document est construit incrémentalement : **A1** (ce ticket), puis A2 (périmètre) et A3 (KPIs).
+> Ce document est construit incrémentalement : **A0** (cadrage), **A1** (personas & US),
+> A2 (périmètre) et A3 (KPIs).
+
+## A0 — Cadrage QQOQCCP
+
+Synthèse du projet selon la méthode **QQOQCCP** (Qui, Quoi, Où, Quand, Comment, Combien, Pourquoi).
+
+| Question | Réponse |
+|----------|---------|
+| **Qui ?** | Le **coureur autonome** (amateur/confirmé équipé d'une montre COROS), unique utilisateur et propriétaire de l'app. App **mono-utilisateur** : pas de coach ni de comptes tiers. |
+| **Quoi ?** | Générer une **stratégie d'allure km par km** prédictive pour une course, personnalisée selon la forme du coureur et la météo du jour J. |
+| **Où ?** | Application web locale (API **FastAPI** + front **Streamlit**). Données : tracé **GPX** d'un parcours connu, point de départ géolocalisé pour la météo. Pas de mise en production cloud (livrable = portfolio + dépôt GitHub). |
+| **Quand ?** | À la **préparation d'une course** (date saisie obligatoirement future). Météo : prévision si ≤ 16 j, sinon relevés de l'an dernier + historique 3 ans. Génération à la demande (quelques secondes). |
+| **Comment ?** | Pipeline d'orchestration **déterministe** : parsing GPX → nettoyage des altitudes (Open Topo Data) → forme COROS → météo (Open-Meteo) → **baseline Minetti** (grade-adjusted pace) → **LLM Llama 3.1 8B ancré sur la baseline** → garde-fous métier + repli déterministe → restitution (carte, profil, allures, tableau) + journalisation (Neon Postgres). |
+| **Combien ?** | Coût d'infra ~0 € (LLM Ollama local ou HF Inference, APIs gratuites, Neon free tier). Cibles : écart temps prédit/réel < 5 %, ≥ 95 % de stratégies dans les garde-fous physiologiques, délai d'obtention < 30 s. |
+| **Pourquoi ?** | Les plans génériques ignorent le **dénivelé réel**, la **forme du moment** et la **météo jour J**. Objectif : une stratégie d'allure **réaliste et fiable** (toujours une sortie grâce au repli), et démontrer la compétence d'orchestration LLM cadrée (portfolio AI Engineer). |
 
 ## A1 — Personas & user stories
 

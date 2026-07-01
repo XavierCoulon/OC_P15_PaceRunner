@@ -13,6 +13,7 @@ from time import perf_counter
 from app.domain.models import (
     AthleteProfile,
     CourseProfile,
+    GenerationMode,
     PaceStrategy,
     RaceContext,
     SurfaceContext,
@@ -61,6 +62,42 @@ async def generate_strategy(
     )
     log_quality(quality)
     return GenerationOutcome(strategy=strategy, quality=quality)
+
+
+async def generate_raw(
+    generator: StrategyGenerator,
+    course: CourseProfile,
+    race: RaceContext,
+    athlete: AthleteProfile | None,
+    weather: WeatherContext | None,
+    surface: SurfaceContext | None,
+    mode: GenerationMode,
+) -> PaceStrategy:
+    """Stratégie LLM **brute** (mode autonomous/cot) : **aucun garde-fou ni repli**.
+
+    Sert à comparer modèles et prompts (cf. #74). On recalcule seulement les totaux
+    (l'arithmétique LLM n'est pas fiable) sans toucher aux allures. Toute panne se propage.
+    """
+    raw = await generator.generate(course, race, athlete, weather, surface, mode=mode)
+    strategy = raw.model_copy(update={"generated_by": f"llm_{mode}"})
+    if len(strategy.km_plans) == len(course.segments):
+        strategy = _recompute_totals_only(strategy, course)
+    return strategy
+
+
+def _recompute_totals_only(strategy: PaceStrategy, course: CourseProfile) -> PaceStrategy:
+    """Recalcule temps total + allure moyenne depuis les allures km, sans modifier les km_plans."""
+    distances = [segment.distance_km for segment in course.segments]
+    total_time = sum(
+        plan.target_pace_sec_per_km * dist
+        for plan, dist in zip(strategy.km_plans, distances, strict=True)
+    )
+    return strategy.model_copy(
+        update={
+            "estimated_time_sec": round(total_time, 1),
+            "average_pace_sec_per_km": round(total_time / course.distance_km, 1),
+        }
+    )
 
 
 def recompute_totals(strategy: PaceStrategy, course: CourseProfile) -> PaceStrategy:

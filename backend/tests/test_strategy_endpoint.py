@@ -10,11 +10,20 @@ from app.adapters.coros_mock import CorosMockAthleteProvider
 from app.api.routes import (
     get_athlete_provider,
     get_elevation_provider,
+    get_hf_strategy_generator,
     get_strategy_generator,
     get_weather_provider,
 )
 from app.config import get_settings
-from app.domain.models import CourseProfile, PaceStrategy, WeatherContext
+from app.domain.models import (
+    AthleteProfile,
+    CourseProfile,
+    KmPlan,
+    PaceStrategy,
+    RaceContext,
+    SurfaceContext,
+    WeatherContext,
+)
 from app.main import app
 
 _TOKEN = "secret-token"
@@ -46,6 +55,38 @@ class _FakeWeather:
 class _FailingGenerator:
     async def generate(self, *args: object, **kwargs: object) -> PaceStrategy:
         raise RuntimeError("LLM indisponible")  # force le fallback baseline
+
+
+class _ValidGenerator:
+    """Renvoie une stratégie alignée sur le parcours (un km_plan par segment)."""
+
+    async def generate(
+        self,
+        course: CourseProfile,
+        race: RaceContext,
+        athlete: AthleteProfile | None,
+        weather: WeatherContext | None,
+        surface: SurfaceContext | None,
+        baseline: PaceStrategy | None = None,
+        mode: str = "anchored",
+    ) -> PaceStrategy:
+        plans = [
+            KmPlan(
+                km_index=s.km_index,
+                target_pace_sec_per_km=330.0,
+                effort="steady",
+                gradient_pct=s.gradient_pct,
+            )
+            for s in course.segments
+        ]
+        return PaceStrategy(
+            distance_km=course.distance_km,
+            estimated_time_sec=1.0,
+            average_pace_sec_per_km=1.0,
+            km_plans=plans,
+            summary=f"variante {mode}",
+            generated_by="llm",
+        )
 
 
 @pytest.fixture
@@ -129,6 +170,43 @@ def test_profile_rejects_invalid_gpx(client: TestClient) -> None:
         files={"gpx": ("bad.gpx", "pas du gpx", "application/gpx+xml")},
     )
     assert response.status_code == 422
+
+
+def test_compare_returns_baseline_and_variants(client: TestClient) -> None:
+    app.dependency_overrides[get_strategy_generator] = _ValidGenerator
+    app.dependency_overrides[get_hf_strategy_generator] = _ValidGenerator
+    response = client.post(
+        "/strategy/compare",
+        headers=_AUTH,
+        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
+        data={"race_datetime": "2026-09-01T09:00:00"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["baseline"]["generated_by"] == "baseline"
+    # 3 variantes : local autonome, local CoT, HF CoT.
+    variants = body["variants"]
+    assert [v["mode"] for v in variants] == ["autonomous", "cot", "cot"]
+    for v in variants:
+        assert v["error"] is None
+        assert v["strategy"]["generated_by"] == f"llm_{v['mode']}"
+        assert len(v["strategy"]["km_plans"]) == len(body["course"]["segments"])
+
+
+def test_compare_reports_variant_failure(client: TestClient) -> None:
+    # Variantes en échec → chacune porte une erreur, baseline toujours présente.
+    app.dependency_overrides[get_hf_strategy_generator] = _FailingGenerator
+    response = client.post(
+        "/strategy/compare",
+        headers=_AUTH,
+        files={"gpx": ("course.gpx", _gpx(), "application/gpx+xml")},
+        data={"race_datetime": "2026-09-01T09:00:00"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["baseline"]["generated_by"] == "baseline"
+    for v in body["variants"]:
+        assert v["strategy"] is None and v["error"] is not None
 
 
 def test_weather_returns_context(client: TestClient) -> None:

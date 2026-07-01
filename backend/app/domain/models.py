@@ -16,6 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 WeatherSource = Literal["forecast", "last_year"]
 
+# Mode de génération LLM : ancré sur la baseline (prod), autonome (sans baseline), ou
+# autonome avec raisonnement explicite imposé (chain-of-thought).
+GenerationMode = Literal["anchored", "autonomous", "cot"]
+
 
 class _Frozen(BaseModel):
     """Base immuable commune aux modèles de domaine."""
@@ -176,3 +180,27 @@ class StrategyResponse(_Frozen):
     course: CourseSummary
     athlete: AthleteProfile | None = None
     weather: WeatherContext | None = None
+
+
+class ComparedStrategy(_Frozen):
+    """Une variante (moteur × prompt) de la comparaison (cf. #74)."""
+
+    label: str = Field(description="Libellé affiché, ex. « qwen2.5:14b · CoT ».")
+    model: str = Field(description="Identifiant du modèle, ex. « qwen2.5:14b ».")
+    mode: GenerationMode = Field(description="Mode de génération (autonomous / cot).")
+    strategy: PaceStrategy | None = None
+    error: str | None = Field(default=None, description="Message si la génération a échoué.")
+
+
+class StrategyComparison(_Frozen):
+    """Réponse de `POST /strategy/compare` : baseline + N variantes LLM brutes (cf. #74).
+
+    `baseline` est la référence déterministe ; `variants` sont les stratégies **brutes**
+    (sans garde-fou ni repli) de chaque couple moteur × prompt comparé.
+    """
+
+    course: CourseSummary
+    athlete: AthleteProfile | None = None
+    weather: WeatherContext | None = None
+    baseline: PaceStrategy
+    variants: list[ComparedStrategy] = Field(default_factory=list)
