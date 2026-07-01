@@ -9,7 +9,9 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from app.domain.models import (
+    ActivitySummary,
     AthleteProfile,
+    CalibrationProfile,
     CourseProfile,
     GenerationMode,
     PaceStrategy,
@@ -31,6 +33,23 @@ class AthleteProvider(Protocol):
     """Fournit la forme de l'athlète (COROS, mono-utilisateur)."""
 
     async def get_athlete_profile(self) -> AthleteProfile: ...
+
+
+@runtime_checkable
+class ActivityHistoryProvider(Protocol):
+    """Fournit l'historique des courses COROS (résumés), source de la calibration (#76)."""
+
+    async def list_activities(
+        self, *, since: int | None, sport_codes: list[int]
+    ) -> list[ActivitySummary]: ...
+
+
+@runtime_checkable
+class CalibrationStore(Protocol):
+    """Persiste et relit le `CalibrationProfile` précalculé (lu sur le chemin /strategy)."""
+
+    async def load(self) -> CalibrationProfile | None: ...
+    async def save(self, profile: CalibrationProfile) -> None: ...
 
 
 @runtime_checkable

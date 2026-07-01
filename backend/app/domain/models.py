@@ -9,7 +9,7 @@ Conventions :
 - durées en **secondes** ; distances en **kilomètres** ; dénivelés en **mètres** ; pentes en **%**.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -88,6 +88,52 @@ class AthleteProfile(_Frozen):
     recovery_pct: float | None = Field(default=None, ge=0, le=100)
     recovery_status: str | None = Field(default=None, description="Niveau de récupération (texte).")
     weight_kg: float | None = Field(default=None, gt=0, description="Poids (grade-adjusted pace).")
+
+
+class ActivitySummary(_Frozen):
+    """Résumé d'une course passée (COROS `querySportRecords`).
+
+    Brique de la **calibration** (#76) : on agrège ces résumés pour personnaliser la baseline.
+    `start_timestamp` (epoch s) sert de curseur d'ingestion incrémentale. `elevation_gain_m`
+    n'est pas fourni par le résumé COROS (rempli plus tard via les flux d'activité, axe D).
+    """
+
+    label_id: str = Field(description="Identifiant COROS de l'activité (clé d'unicité).")
+    sport_type: int = Field(description="Code sport COROS (100 = outdoor run, 102 = trail).")
+    start_timestamp: int = Field(gt=0, description="Début de l'activité (epoch secondes, UTC).")
+    activity_date: date
+    distance_km: float = Field(gt=0)
+    duration_s: int = Field(gt=0)
+    avg_pace_sec_per_km: float | None = Field(default=None, gt=0)
+    avg_hr: int | None = Field(default=None, gt=0)
+    start_lat: float | None = Field(default=None, ge=-90, le=90)
+    start_lon: float | None = Field(default=None, ge=-180, le=180)
+    location: str | None = None
+    elevation_gain_m: float | None = Field(default=None, ge=0)
+
+
+class CalibrationProfile(_Frozen):
+    """Personnalisation dérivée de l'historique COROS (#76), tous champs optionnels.
+
+    Consolide jusqu'à 4 axes. Le seuil COROS reste l'ancre : on **ne** stocke pas une allure
+    de remplacement, mais des facteurs qui ajustent la baseline. Tant qu'un axe manque de
+    données, son champ reste `None` → la baseline retombe sur ses constantes génériques.
+    """
+
+    computed_at: datetime | None = None
+    sample_count: int = Field(default=0, ge=0, description="Nb de courses ayant nourri le calcul.")
+    # Axe A — décroissance allure↔distance (remplace les facteurs littéraires) & relation FC↔allure.
+    distance_factors: list[tuple[float, float]] | None = Field(
+        default=None, description="Paliers (distance_max_km, facteur) calibrés sur efforts réels."
+    )
+    hr_pace_slope: float | None = None
+    # Axe B — sensibilité chaleur personnelle.
+    heat_coeff_per_deg: float | None = Field(default=None, ge=0)
+    heat_threshold_c: float | None = None
+    # Axe C — tendance de forme.
+    fitness_trend: float | None = None
+    # Axe D — courbe allure-pente personnelle.
+    grade_curve: list[float] | None = None
 
 
 class YearlyWeather(_Frozen):
