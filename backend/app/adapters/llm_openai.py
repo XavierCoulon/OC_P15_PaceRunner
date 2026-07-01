@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from app.config import Settings, get_settings
 from app.domain.models import (
     AthleteProfile,
+    CalibrationProfile,
     CourseProfile,
     GenerationMode,
     PaceStrategy,
@@ -26,6 +27,7 @@ from app.prompts.strategy_system import (
     STRATEGY_SYSTEM_PROMPT_AUTONOMOUS,
     STRATEGY_SYSTEM_PROMPT_COT,
 )
+from app.services.calibration_compute import calibration_note
 
 _SYSTEM_BY_MODE = {
     "anchored": STRATEGY_SYSTEM_PROMPT,
@@ -73,6 +75,7 @@ class OpenAICompatibleStrategyGenerator:
         surface: SurfaceContext | None,
         baseline: PaceStrategy | None = None,
         mode: GenerationMode = "anchored",
+        calibration: CalibrationProfile | None = None,
     ) -> PaceStrategy:
         # anchored : ancré sur la baseline. autonomous/cot : le LLM conçoit seul (sans baseline).
         # cot : raisonnement explicite imposé → pas de mode JSON (le modèle réfléchit avant).
@@ -82,7 +85,9 @@ class OpenAICompatibleStrategyGenerator:
             {"role": "system", "content": _SYSTEM_BY_MODE[mode]},
             {
                 "role": "user",
-                "content": _build_user_message(course, race, athlete, weather, surface, anchor),
+                "content": _build_user_message(
+                    course, race, athlete, weather, surface, anchor, calibration
+                ),
             },
         ]
         raw = await self._chat(messages, json_mode=json_mode)
@@ -148,6 +153,7 @@ def _build_user_message(
     weather: WeatherContext | None,
     surface: SurfaceContext | None,
     baseline: PaceStrategy | None = None,
+    calibration: CalibrationProfile | None = None,
 ) -> str:
     payload: dict[str, Any] = {
         "course": {
@@ -174,4 +180,8 @@ def _build_user_message(
             {"km_index": p.km_index, "pace_sec_per_km": p.target_pace_sec_per_km}
             for p in baseline.km_plans
         ]
+    note = calibration_note(calibration)
+    if note is not None:
+        # Résumé qualitatif personnalisé (forme/efforts) — pas de stats brutes à recombiner.
+        payload["calibration"] = note
     return json.dumps(payload, ensure_ascii=False)

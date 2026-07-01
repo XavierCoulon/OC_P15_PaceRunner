@@ -23,6 +23,7 @@ from app.domain.models import ActivitySummary, CalibrationProfile
 class ActivityRepository(Protocol):
     async def upsert(self, activities: list[ActivitySummary]) -> int: ...
     async def last_synced_timestamp(self) -> int | None: ...
+    async def all_activities(self) -> list[ActivitySummary]: ...
     async def status(self) -> CalibrationStatus: ...
 
 
@@ -95,6 +96,27 @@ class SqlActivityRepository:
                 await session.execute(select(func.max(CorosActivity.start_timestamp)))
             ).scalar_one_or_none()
 
+    async def all_activities(self) -> list[ActivitySummary]:
+        async with session_factory()() as session:
+            rows = (await session.execute(select(CorosActivity))).scalars().all()
+        return [
+            ActivitySummary(
+                label_id=row.label_id,
+                sport_type=row.sport_type,
+                start_timestamp=row.start_timestamp,
+                activity_date=row.activity_date,
+                distance_km=row.distance_km,
+                duration_s=row.duration_s,
+                avg_pace_sec_per_km=row.avg_pace_sec_per_km,
+                avg_hr=row.avg_hr,
+                start_lat=row.start_lat,
+                start_lon=row.start_lon,
+                location=row.location,
+                elevation_gain_m=row.elevation_gain_m,
+            )
+            for row in rows
+        ]
+
     async def status(self) -> CalibrationStatus:
         async with session_factory()() as session:
             count, first_date, last_date, last_synced, trail = (
@@ -129,6 +151,9 @@ class NullActivityRepository:
 
     async def last_synced_timestamp(self) -> int | None:
         return None
+
+    async def all_activities(self) -> list[ActivitySummary]:
+        return []
 
     async def status(self) -> CalibrationStatus:
         return CalibrationStatus(

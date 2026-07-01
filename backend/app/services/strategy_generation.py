@@ -12,6 +12,7 @@ from time import perf_counter
 
 from app.domain.models import (
     AthleteProfile,
+    CalibrationProfile,
     CourseProfile,
     GenerationMode,
     PaceStrategy,
@@ -40,14 +41,17 @@ async def generate_strategy(
     athlete: AthleteProfile | None,
     weather: WeatherContext | None,
     surface: SurfaceContext | None,
+    calibration: CalibrationProfile | None = None,
 ) -> GenerationOutcome:
     """Renvoie la stratégie LLM si elle passe les garde-fous, sinon le fallback baseline."""
     start = perf_counter()
-    baseline = build_baseline_strategy(course, athlete, weather)
+    baseline = build_baseline_strategy(course, athlete, weather, calibration)
     llm_guardrails_passed = False
 
     try:
-        raw = await generator.generate(course, race, athlete, weather, surface, baseline=baseline)
+        raw = await generator.generate(
+            course, race, athlete, weather, surface, baseline=baseline, calibration=calibration
+        )
         if check_strategy(raw, course, athlete):
             strategy = baseline
         else:
@@ -72,13 +76,16 @@ async def generate_raw(
     weather: WeatherContext | None,
     surface: SurfaceContext | None,
     mode: GenerationMode,
+    calibration: CalibrationProfile | None = None,
 ) -> PaceStrategy:
     """Stratégie LLM **brute** (mode autonomous/cot) : **aucun garde-fou ni repli**.
 
     Sert à comparer modèles et prompts (cf. #74). On recalcule seulement les totaux
     (l'arithmétique LLM n'est pas fiable) sans toucher aux allures. Toute panne se propage.
     """
-    raw = await generator.generate(course, race, athlete, weather, surface, mode=mode)
+    raw = await generator.generate(
+        course, race, athlete, weather, surface, mode=mode, calibration=calibration
+    )
     strategy = raw.model_copy(update={"generated_by": f"llm_{mode}"})
     if len(strategy.km_plans) == len(course.segments):
         strategy = _recompute_totals_only(strategy, course)

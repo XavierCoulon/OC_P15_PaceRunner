@@ -2,6 +2,7 @@
 
 from app.domain.models import (
     AthleteProfile,
+    CalibrationProfile,
     CourseProfile,
     ElevationSegment,
     KmPlan,
@@ -68,6 +69,7 @@ class _FakeGenerator:
         surface: SurfaceContext | None,
         baseline: PaceStrategy | None = None,
         mode: str = "anchored",
+        calibration: CalibrationProfile | None = None,
     ) -> PaceStrategy:
         plans = [
             KmPlan(

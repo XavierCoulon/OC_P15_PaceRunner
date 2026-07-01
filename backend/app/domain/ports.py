@@ -79,6 +79,7 @@ class StrategyGenerator(Protocol):
         surface: SurfaceContext | None,
         baseline: PaceStrategy | None = None,
         mode: GenerationMode = "anchored",
+        calibration: CalibrationProfile | None = None,
     ) -> PaceStrategy: ...
 
 
