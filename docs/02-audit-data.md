@@ -13,12 +13,12 @@
 | **COROS** | Forme athlète : VO2max & **allure seuil** (fitness overview), **récupération** (recovery status), **poids** (user info) | Serveur **MCP distant** via **client httpx maison** | OAuth 2.1 (mono-utilisateur, refresh token en secret) | Personnalisation de la stratégie selon la forme du propriétaire | 1 |
 | **Open Topo Data** | **Altitudes corrigées** par coordonnées | API HTTP publique (REST) | — (gratuit) | Nettoyage du bruit barométrique du GPX → dénivelé fiable | 1 (nettoyage) |
 | **Open-Meteo** | **Météo selon l'horizon** : prévision (≤16 j) + qualité air (≤~5 j) ; **climatologie ERA5** (>16 j, 1940→) avec repère « même date l'an dernier » | 2 API REST (forecast / archive) — seasonal SEAS5 différé | — (gratuit, sans clé) | Conditions au point de départ pour la date/heure de course | 2 |
-| **Overpass / OSM** | **Type de surface** du parcours (route, sentier, piste…) | API HTTP publique (Overpass QL) | — (gratuit) | Affiner l'effort selon le revêtement | 3 |
+| **Overpass / OSM** *(audité, non retenu)* | **Type de surface** du parcours (route, sentier, piste…) | API HTTP publique (Overpass QL) | — (gratuit) | Aurait affiné l'effort selon le revêtement — **non implémenté** (apport faible, tags incomplets) | 3 |
 
 ### Notes
 
 - **Géolocalisation** : les coordonnées du **GPX** (notamment le point de départ) alimentent Open Topo
-  Data, Open-Meteo et Overpass — le GPX est donc la source pivot.
+  Data et Open-Meteo — le GPX est donc la source pivot.
 - **COROS** : seule source nécessitant une authentification ; app **mono-utilisateur** (un seul compte,
   OAuth réalisé une fois — cf. spike #13 et ADR C-ADR2). Accès via **client MCP httpx maison** (le SDK
   officiel bloque sur COROS). Le serveur **fait tourner le refresh token à chaque refresh** → stockage
@@ -38,10 +38,11 @@
   années + min/max), avec comparatif **« même date l'an dernier »** en repère. Le besoin n'est donc pas
   une « prévision » exacte lointaine mais une **attente typique + incertitude**. La tendance saisonnière
   SEAS5 (16 j–7 mois) est **différée** : la climatologie la couvre déjà sans injecter de donnée bruitée.
-- **Sources publiques gratuites** (Open Topo Data, Open-Meteo, Overpass) : pas de clé requise, sous
-  réserve des limites d'usage (détaillées en **B2**).
-- **Priorités** : 1 = indispensable, 2/3 = enrichissement avec **dégradation gracieuse** (le pipeline
-  produit une stratégie même si une source 2/3 est indisponible).
+- **Sources publiques gratuites** (Open Topo Data, Open-Meteo) : pas de clé requise, sous réserve des
+  limites d'usage (détaillées en **B2**). *Overpass a été **audité mais non implémenté** (priorité 3,
+  apport jugé faible face à l'effort et à la couverture OSM incomplète).*
+- **Priorités** : 1 = indispensable, 2 = enrichissement avec **dégradation gracieuse** (le pipeline
+  produit une stratégie même si une source 2 est indisponible).
 
 ## B2 — Qualité, adéquation aux besoins & limites
 
@@ -53,12 +54,13 @@
 | **COROS** | Données issues d'un appareil de mesure réel (VO2max, allure seuil) ; mises à jour régulières. | Cœur de la personnalisation (BF3). | **Source unique d'auth** ; dépend du serveur MCP COROS (dispo, expiration du refresh token) ; mono-utilisateur. |
 | **Open Topo Data** | Altitudes issues de modèles MNT (ex. SRTM) — bonne précision relative pour le dénivelé. | Corrige le défaut clé du GPX (D+ fiable). | **Limite de débit** (API publique gratuite) ; résolution finie du MNT ; service tiers → dégradation possible. |
 | **Open-Meteo** | Prévision fiable ≤16 j ; au-delà, climatologie représentative. | Conditions jour J (BF4), quel que soit l'horizon. | Routage : ≤16 j **prévision** · au-delà **climatologie ERA5** (moyenne N années + min/max, + même date l'an dernier). Qualité air ≤~5 j. Seasonal SEAS5 **différé** (bruité/non bias-corrigé). |
-| **Overpass / OSM** | Données contributives : couverture/qualité **variables** selon la zone. | Affine l'effort (revêtement) — apport secondaire. | Tags surface parfois absents/incohérents ; **quotas** Overpass ; service tiers. |
+| **Overpass / OSM** *(non retenu)* | Données contributives : couverture/qualité **variables** selon la zone. | Apport secondaire (revêtement) — jugé **insuffisant** pour l'effort. | Tags surface souvent absents/incohérents ; quotas ; service tiers → **écarté** de l'implémentation. |
 
 ### Synthèse d'adéquation
 
-- **Suffisant pour le besoin** : GPX + COROS + Open Topo Data couvrent les besoins critiques (BF1–BF3).
-  Open-Meteo et Overpass apportent un **enrichissement** (BF4) non bloquant.
+- **Suffisant pour le besoin** : GPX + COROS + Open Topo Data couvrent les besoins critiques (BF1–BF3,
+  BF6 calibration). Open-Meteo apporte un **enrichissement** (BF4) non bloquant. Overpass (surface),
+  audité, a été **écarté** (apport faible).
 - **Stratégie de robustesse** : sources de priorité 2/3 traitées en **dégradation gracieuse** ; correction
   systématique de l'altitude GPX ; garde-fous métier + **fallback baseline** si l'enrichissement manque.
 - **Risques principaux** : dépendance à des **services tiers** (dispo, quotas) et à l'**auth COROS**
@@ -97,8 +99,8 @@
 ### Gestion des secrets
 
 - Secrets : `COROS_REFRESH_TOKEN`, `HF_TOKEN`, `DATABASE_URL` (Neon), `API_TOKEN`.
-- **Jamais commités** : `.env` local + **`.gitignore`** (tokens du spike déjà exclus) ; en production,
-  **Secrets du Space Hugging Face**.
+- **Jamais commités** : `.env` local + **`.gitignore`** (tokens du spike déjà exclus). *(Exécution
+  locale ; en cas de déploiement, on utiliserait les **Secrets du Space Hugging Face**.)*
 - Accès backend protégé par **token API (Bearer)** ; `/health` public.
 - **Transport chiffré** (HTTPS) vers toutes les sources et la base Neon ; refresh token COROS
   auto-renouvelé, jamais exposé au front.

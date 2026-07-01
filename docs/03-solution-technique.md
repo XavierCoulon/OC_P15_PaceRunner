@@ -2,7 +2,13 @@
 
 > Livrable de la compétence **C3 — Identifier une solution technique répondant aux besoins**.
 > Regroupe les décisions d'architecture sous forme d'**ADR** (Architecture Decision Records).
-> Construit incrémentalement : **C-ADR1** (orchestration), C-ADR2 (client COROS), C-ADR3 (LLM/provider).
+> ADR-1 (orchestration) · ADR-2 (client COROS) · ADR-3 & ADR-4 (LLM/provider) · **ADR-5** (évolution :
+> calibration personnalisée, DeepSeek-V3 en production, deux flux Générer/Comparer).
+
+> **⚠️ État courant** : le **modèle de production est DeepSeek-V3** (le 8B n'est plus que le bras de
+> comparaison), et une **couche de calibration** personnalise la baseline. Les ADR-3/ADR-4 ci-dessous
+> décrivent le choix **initial** (Llama 3.1 8B / HF vs local) et sont **partiellement supersédés par
+> l'ADR-5** (en fin de document). Le projet **n'est pas déployé** (exécution locale, livrable portfolio).
 
 ## ADR-1 — Orchestrateur déterministe vs agent LLM autonome
 
@@ -12,7 +18,7 @@
 ### Contexte
 
 Le besoin (C1) est de produire une **stratégie d'allure km par km** fiable à partir d'un GPX enrichi
-(altitudes, forme COROS, météo, surface). Deux approches possibles :
+(altitudes, forme COROS, météo). Deux approches possibles :
 1. **Agent LLM autonome** : le LLM décide lui-même quels outils/sources appeler et orchestre le pipeline.
 2. **Orchestrateur déterministe** : un backend FastAPI prépare et nettoie la donnée selon un pipeline
    fixe, et le LLM ne fait **que produire le JSON de stratégie** à partir d'une donnée déjà consolidée.
@@ -20,9 +26,9 @@ Le besoin (C1) est de produire une **stratégie d'allure km par km** fiable à p
 ### Décision
 
 On retient l'**orchestrateur déterministe**. Le backend pilote le pipeline (parsing GPX → nettoyage
-altitudes → enrichissements → baseline → génération) ; le LLM (Llama 3.1 8B) intervient **uniquement**
-en fin de chaîne pour générer un **JSON de stratégie validé par Pydantic**, à partir de la seule donnée
-nettoyée injectée dans le prompt.
+altitudes → enrichissements → baseline → génération) ; le **LLM** (initialement Llama 3.1 8B, désormais
+**DeepSeek-V3** en production — cf. ADR-5) intervient **uniquement** en fin de chaîne pour générer un
+**JSON de stratégie validé par Pydantic**, à partir de la seule donnée nettoyée injectée dans le prompt.
 
 ### Conséquences
 
@@ -77,7 +83,7 @@ parsing du `text/event-stream`. Le SDK officiel est écarté pour COROS.
 
 ## ADR-3 — Choix du LLM & du provider (Llama 3.1 8B / Hugging Face)
 
-- **Statut** : Accepté
+- **Statut** : Accepté — **partiellement supersédé par [ADR-5](#adr-5--calibration-personnalisée--deepseek-v3-en-production-évolution)** (modèle de prod = DeepSeek-V3)
 - **Compétence** : C3
 
 ### Contexte
@@ -112,7 +118,7 @@ OpenAI-compatible**, `response_format` JSON). **Ollama local** reste un fallback
 
 ## ADR-4 — LLM local (Ollama) d'abord, Hugging Face ensuite
 
-- **Statut** : Accepté
+- **Statut** : Accepté — **partiellement supersédé par [ADR-5](#adr-5--calibration-personnalisée--deepseek-v3-en-production-évolution)** (prod = DeepSeek-V3 ; le local reste le banc d'essai)
 - **Compétence** : C3
 
 ### Contexte
